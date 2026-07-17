@@ -7,11 +7,21 @@ script is the command-line version of
 ## Run the 500M-token two-seed experiment on RunPod
 
 Use a RunPod PyTorch image with a CUDA GPU and a persistent volume mounted at
-`/workspace`. From the repository root, install the notebook's dependencies:
+`/workspace`. From the repository root, install Miniconda and create the
+project environment:
 
 ```bash
-python -m pip install "sae-lens==6.46.0" python-dotenv
+bash install_miniconda.sh
+bash setup_dev_env.sh
+source /workspace/miniconda3/etc/profile.d/conda.sh
+conda activate sae
 ```
+
+`setup_dev_env.sh` is safe to rerun: it reuses the `sae` environment and
+refreshes the packages in `requirements.txt`. Set `SAE_ENV_NAME` or
+`SAE_PYTHON_VERSION` before running it to override the default environment name
+or Python 3.11. If Miniconda was installed somewhere other than `/workspace`,
+use the `source` path printed by `install_miniconda.sh`.
 
 Set `WANDB_API_KEY` in the pod environment or in a repository-root `.env` file,
 then run:
