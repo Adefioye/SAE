@@ -81,6 +81,7 @@ conda run -n "${ENV_NAME}" \
 echo "Verifying the SAELens runtime and training CLI..."
 VERIFY_CODE='from importlib.metadata import version
 import dotenv
+import huggingface_hub
 import sae_lens
 import torch
 

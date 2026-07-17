@@ -30,6 +30,7 @@ then run:
 python scripts/train_two_seed_sae.py \
   --training-tokens 500000000 \
   --output-dir /workspace/sae-runs/pythia-160m-500m-two-seed \
+  --n-checkpoints 4 \
   --device cuda \
   --log-to-wandb
 ```
@@ -39,6 +40,21 @@ batches (shared data seed `42`). It uses Pythia-160M's
 `blocks.6.hook_mlp_out`, a 32,768-feature TopK SAE with `k=32`, and the
 streaming tokenized Pile dataset from the notebook. Checkpoints and final SAE
 weights are written below the supplied `--output-dir`.
+
+The command saves four scheduled checkpoints containing both SAE and optimizer
+state, plus the final checkpoint. To upload the complete checkpoint tree, set
+`HF_REPO_ID` and `HF_TOKEN` in `.env`, then run:
+
+```bash
+python scripts/upload_checkpoints_to_hf.py \
+  --checkpoint-dir /workspace/sae-runs/pythia-160m-500m-two-seed/checkpoints \
+  --path-in-repo pythia-160m-500m-two-seed/checkpoints
+```
+
+The destination repository is created as a model repository if it does not
+already exist. Add `--private` to make a newly created repository private.
+Rerun the same upload command after an interruption; Hugging Face resumes the
+folder upload and skips content already committed.
 
 If the pod is interrupted, rerun the same command and add
 `--resume-from-checkpoint PATH`, where `PATH` is the specific checkpoint

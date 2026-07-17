@@ -1,5 +1,7 @@
 # Runtime dependencies for scripts/train_two_seed_sae.py.
-# SAELens installs its supported PyTorch, TransformerLens, Hugging Face,
-# datasets, and Weights & Biases dependencies transitively.
+# SAELens installs its supported PyTorch, TransformerLens, datasets, and
+# Weights & Biases dependencies transitively. The other packages are direct
+# imports in this repository's scripts.
 sae-lens==6.46.0
+huggingface-hub>=0.27.0,<2.0.0
 python-dotenv>=1.0.1,<2.0.0

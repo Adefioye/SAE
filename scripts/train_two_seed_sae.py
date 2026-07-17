@@ -83,7 +83,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Cosine decay steps; defaults to one fifth of total steps.",
     )
-    parser.add_argument("--n-checkpoints", type=int, default=2)
+    parser.add_argument(
+        "--n-checkpoints",
+        type=int,
+        default=4,
+        help="Number of scheduled optimizer checkpoints (default: 4).",
+    )
     parser.add_argument(
         "--resume-from-checkpoint",
         type=Path,
