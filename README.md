@@ -35,6 +35,10 @@ python scripts/train_two_seed_sae.py \
   --log-to-wandb
 ```
 
+By default, W&B logs to the
+[`pythia-160m-seeds`](https://wandb.ai/abdulhakeemadefioye-personal/pythia-160m-seeds)
+project under the `abdulhakeemadefioye-personal` entity.
+
 This trains initialization seeds `0` and `1` together on the same activation
 batches (shared data seed `42`). It uses Pythia-160M's
 `blocks.6.hook_mlp_out`, a 32,768-feature TopK SAE with `k=32`, and the

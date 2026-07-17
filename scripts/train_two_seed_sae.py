@@ -121,7 +121,10 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--wandb-project", default="pythia-160m-seeds")
-    parser.add_argument("--wandb-entity", default=None)
+    parser.add_argument(
+        "--wandb-entity",
+        default="abdulhakeemadefioye-personal",
+    )
     parser.add_argument(
         "--run-name",
         default=None,
