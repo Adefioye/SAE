@@ -53,6 +53,10 @@ state, plus the final checkpoint. To upload the complete checkpoint tree, set
 python scripts/upload_checkpoints_to_hf.py \
   --checkpoint-dir /workspace/sae-runs/pythia-160m-500m-two-seed/checkpoints \
   --path-in-repo pythia-160m-500m-two-seed/checkpoints
+
+python scripts/upload_checkpoints_to_hf.py \
+  --checkpoint-dir /workspace/sae-runs/pythia-160m-500m-two-seed/trained_saes \
+  --path-in-repo pythia-160m-500m-two-seed/trained_saes
 ```
 
 The destination repository is created as a model repository if it does not

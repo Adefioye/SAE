@@ -87,7 +87,10 @@ import torch
 
 sae_version = version("sae-lens")
 print(f"Python dependencies OK: sae-lens={sae_version}, torch={torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")'
+print(f"PyTorch CUDA runtime: {torch.version.cuda}")
+if not torch.cuda.is_available():
+    raise SystemExit("CUDA verification failed: PyTorch cannot access the RunPod GPU")
+print(f"CUDA device: {torch.cuda.get_device_name(0)}")'
 conda run -n "${ENV_NAME}" python -c "${VERIFY_CODE}"
 conda run -n "${ENV_NAME}" \
   python "${PROJECT_DIR}/scripts/train_two_seed_sae.py" --help >/dev/null

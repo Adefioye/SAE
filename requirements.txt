@@ -2,6 +2,14 @@
 # SAELens installs its supported PyTorch, TransformerLens, datasets, and
 # Weights & Biases dependencies transitively. The other packages are direct
 # imports in this repository's scripts.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# RunPod reports a CUDA 12.8-capable driver. Pin the matching official wheel so
+# pip does not select a newer CUDA 13 build that the host driver cannot load.
+torch==2.7.1+cu128; platform_system == "Linux"
 sae-lens==6.46.0
 huggingface-hub>=0.27.0,<2.0.0
 python-dotenv>=1.0.1,<2.0.0
+transformer-lens==2.16.1
+transformers==4.53.2
+
