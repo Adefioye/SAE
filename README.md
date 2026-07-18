@@ -89,9 +89,8 @@ have shape `[vocabulary]` for each selected token and downstream offset.
   also reported, but standardizing every feature changes the question by giving
   rare low-variance features equal scale.
 - SVCCA performs centered PCA/SVD, retains the configured dominant variance,
-  then applies ridge-stabilized CCA. PWCCA uses the standard projection weights
-  of Morcos et al. (2018), not PCA explained-variance weights. These metrics show
-  dominant shared subspaces, not aligned individual features or causal roles.
+  then applies ridge-stabilized CCA. It shows dominant shared subspaces, not
+  aligned individual features or causal roles.
 - Ablation replaces the model activation with each SAE's own full reconstruction.
   For seed A it compares `z_all_A` with `z_-a_A`; seed B is treated separately.
   This controls for unequal reconstruction errors. Logit-delta cosine is the
@@ -127,7 +126,6 @@ activation_overlap.parquet
 cka_matrix.csv
 svcca_summary.csv
 svcca_correlations/
-pwcca_summary.csv
 ablation_prompt_level.parquet
 ablation_feature_level.parquet
 controls_summary.csv
@@ -144,7 +142,7 @@ tables, and control overlap tables are retained as reusable intermediates.
 Activation collection and ablation require the base model and at least one SAE
 on the selected device. Reduce `activations.encoder_batch_tokens` if dense
 per-batch TopK encoder outputs exhaust device memory. CKA uses sparse covariance
-identities rather than dense centered matrices. SVCCA/PWCCA use centered sparse
+identities rather than dense centered matrices. SVCCA uses centered sparse
 SVD capped by `max_components`; these are the most expensive representation
 steps. A 32k exact dense assignment is intentionally avoided in `solver: auto`;
 increase `candidate_top_k` to trade memory/runtime for candidate coverage.
@@ -155,7 +153,7 @@ increase `candidate_top_k` to trade memory/runtime for candidate coverage.
 | --- | --- |
 | High Hungarian similarity and high activation overlap | Similar individual features and similar firing behavior |
 | Low feature matching but high CKA | Different feature axes but similar global token geometry |
-| Low feature matching but high SVCCA/PWCCA | Different dictionaries may span similar dominant subspaces |
+| Low feature matching but high SVCCA | Different dictionaries may span similar dominant subspaces |
 | High geometric similarity but low ablation similarity | Similar representation geometry but different downstream causal roles |
 | High activation overlap and high ablation similarity | Strong evidence that matched features behave similarly |
 | Low ablation JSD but negligible individual effects | Inconclusive; both features may simply do nothing |

@@ -154,7 +154,7 @@ def _statistical_summary(
 
     seed_pairs = _read_if(store.root / "seed_pair_summary.csv")
     if len(seed_pairs) >= 3:
-        for metric in ("cka", "cka_standardized", "svcca_mean", "pwcca"):
+        for metric in ("cka", "cka_standardized", "svcca_mean"):
             interval = bootstrap_ci(
                 seed_pairs[metric].to_numpy(),
                 samples=config.bootstrap.samples,
@@ -180,7 +180,6 @@ def _make_plots(store: ArtifactStore) -> None:
     for filename, title, output_name in (
         ("cka_matrix.csv", "Linear CKA across SAE seeds", "cka_heatmap"),
         ("svcca_matrix.csv", "Mean SVCCA across SAE seeds", "svcca_heatmap"),
-        ("pwcca_matrix.csv", "PWCCA across SAE seeds", "pwcca_heatmap"),
     ):
         path = store.root / filename
         if path.exists():

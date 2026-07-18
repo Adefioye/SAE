@@ -5,9 +5,7 @@ from .metrics import (
     activation_overlap,
     ablation_metrics,
     linear_cka,
-    pwcca,
     svcca,
-    svcca_pwcca,
 )
 
 __all__ = [
@@ -16,9 +14,7 @@ __all__ = [
     "activation_overlap",
     "linear_cka",
     "load_config",
-    "pwcca",
     "svcca",
-    "svcca_pwcca",
 ]
 
 __version__ = "0.1.0"

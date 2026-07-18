@@ -397,83 +397,12 @@ def svcca(
     random_seed: int = 0,
 ) -> SVCCAResult:
     """SVCCA on dominant PCA subspaces of shared ``[samples, latents]`` rows."""
-    return svcca_pwcca(
-        left,
-        right,
-        explained_variance=explained_variance,
-        max_components=max_components,
-        ridge=ridge,
-        random_seed=random_seed,
-    )[0]
-
-
-@dataclass
-class PWCCAResult:
-    correlations: np.ndarray
-    projection_weights: np.ndarray
-    similarity: float
-    weighting_side: str
-    canonical_variates: np.ndarray
-    components_a: int
-    components_b: int
-    explained_variance_a: float
-    explained_variance_b: float
-
-    def to_dict(self, include_arrays: bool = False) -> dict[str, Any]:
-        result = asdict(self)
-        if not include_arrays:
-            for key in ("correlations", "projection_weights", "canonical_variates"):
-                result.pop(key)
-        return result
-
-
-def pwcca(
-    left: Array,
-    right: Array,
-    *,
-    explained_variance: float = 0.99,
-    max_components: int = 1024,
-    ridge: float = 1e-6,
-    random_seed: int = 0,
-) -> PWCCAResult:
-    """Projection-weighted CCA using the standard Morcos et al. weighting.
-
-    After PCA and CCA, canonical variates on the lower-rank side are
-    orthonormalized. Each canonical component receives the sum of absolute
-    projections of that side's original reduced neuron activations onto the
-    canonical basis. Normalized weights are dotted with canonical correlations.
-    This is the PWCCA algorithm from Morcos et al., *Insights on representational
-    similarity in neural networks with canonical correlation* (NeurIPS 2018),
-    not PCA-explained-variance weighting.
-    """
-    return svcca_pwcca(
-        left,
-        right,
-        explained_variance=explained_variance,
-        max_components=max_components,
-        ridge=ridge,
-        random_seed=random_seed,
-    )[1]
-
-
-def svcca_pwcca(
-    left: Array,
-    right: Array,
-    *,
-    explained_variance: float = 0.99,
-    max_components: int = 1024,
-    ridge: float = 1e-6,
-    random_seed: int = 0,
-) -> tuple[SVCCAResult, PWCCAResult]:
-    """Compute SVCCA and standard PWCCA while sharing PCA and CCA work."""
     if left.shape[0] != right.shape[0]:
-        raise ValueError("SVCCA/PWCCA inputs must share sample rows")
+        raise ValueError("SVCCA inputs must share sample rows")
     pca_left = _pca_reduce(left, explained_variance, max_components, random_seed)
     pca_right = _pca_reduce(right, explained_variance, max_components, random_seed + 1)
-    correlations, coef_left, coef_right, centered_left, centered_right = _cca(
-        pca_left.scores, pca_right.scores, ridge
-    )
-    svcca_result = SVCCAResult(
+    correlations, _, _, _, _ = _cca(pca_left.scores, pca_right.scores, ridge)
+    return SVCCAResult(
         correlations=correlations,
         mean_correlation=float(correlations.mean()),
         median_correlation=float(np.median(correlations)),
@@ -486,33 +415,6 @@ def svcca_pwcca(
         pca_curve_a=np.cumsum(pca_left.explained_variance_ratio),
         pca_curve_b=np.cumsum(pca_right.explained_variance_ratio),
     )
-    if pca_left.retained_components <= pca_right.retained_components:
-        canonical = centered_left @ coef_left
-        source = centered_left
-        side = "a"
-    else:
-        canonical = centered_right @ coef_right
-        source = centered_right
-        side = "b"
-    canonical = canonical[:, : len(correlations)]
-    q, _ = np.linalg.qr(canonical, mode="reduced")
-    weights = np.abs(q.T @ source).sum(axis=1)
-    if weights.sum() <= np.finfo(np.float64).eps:
-        raise ValueError("PWCCA projection weights are all zero")
-    weights = weights / weights.sum()
-    similarity = float(weights @ correlations[: len(weights)])
-    pwcca_result = PWCCAResult(
-        correlations=correlations,
-        projection_weights=weights,
-        similarity=similarity,
-        weighting_side=side,
-        canonical_variates=canonical,
-        components_a=pca_left.retained_components,
-        components_b=pca_right.retained_components,
-        explained_variance_a=pca_left.explained_variance_retained,
-        explained_variance_b=pca_right.explained_variance_retained,
-    )
-    return svcca_result, pwcca_result
 
 
 def log_probabilities(logits: np.ndarray) -> np.ndarray:

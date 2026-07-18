@@ -1,4 +1,4 @@
-"""Compute pairwise CKA, SVCCA, PWCCA, and global representation controls."""
+"""Compute pairwise CKA, SVCCA, and global representation controls."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pandas as pd
 from scipy import sparse
 
 from .config import EvaluationConfig, load_config
-from .metrics import linear_cka, svcca_pwcca
+from .metrics import linear_cka, svcca
 from .storage import ArtifactStore
 from .utils import (
     configure_logging,
@@ -47,9 +47,7 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
         summary_path,
         store.root / "cka_matrix.csv",
         store.root / "svcca_summary.csv",
-        store.root / "pwcca_summary.csv",
         store.root / "svcca_matrix.csv",
-        store.root / "pwcca_matrix.csv",
     ]
     if config.controls.enabled:
         required.append(store.root / "controls_summary.csv")
@@ -61,7 +59,6 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
     latents = {name: store.load_latents(name) for name in names}
     pair_rows: list[dict[str, Any]] = []
     svcca_rows: list[dict[str, Any]] = []
-    pwcca_rows: list[dict[str, Any]] = []
     control_rows: list[dict[str, Any]] = []
     for pair_index, (sae_a, sae_b) in enumerate(pairwise(config.saes)):
         left, right = latents[sae_a.name], latents[sae_b.name]
@@ -89,8 +86,8 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
         cka_standardized = linear_cka(
             cka_left, cka_right, center=config.cka.center, standardize_features=True
         )
-        LOGGER.info("SVCCA/PWCCA %s/%s", sae_a.name, sae_b.name)
-        svcca_result, pwcca_result = svcca_pwcca(
+        LOGGER.info("SVCCA %s/%s", sae_a.name, sae_b.name)
+        svcca_result = svcca(
             subspace_left,
             subspace_right,
             explained_variance=config.svcca.explained_variance,
@@ -104,13 +101,7 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
             **svcca_result.to_dict(),
             "n_samples": len(subspace_indices),
         }
-        pwcca_row = {
-            **common,
-            **pwcca_result.to_dict(),
-            "n_samples": len(subspace_indices),
-        }
         svcca_rows.append(svcca_row)
-        pwcca_rows.append(pwcca_row)
         pair_rows.append(
             {
                 **common,
@@ -120,7 +111,6 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
                 "cka_standardized": cka_standardized,
                 "svcca_mean": svcca_result.mean_correlation,
                 "svcca_median": svcca_result.median_correlation,
-                "pwcca": pwcca_result.similarity,
             }
         )
         stem = f"{sae_a.name}__{sae_b.name}"
@@ -129,8 +119,6 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
             correlations=svcca_result.correlations,
             pca_curve_a=svcca_result.pca_curve_a,
             pca_curve_b=svcca_result.pca_curve_b,
-            pwcca_correlations=pwcca_result.correlations,
-            pwcca_weights=pwcca_result.projection_weights,
         )
 
         if config.controls.enabled:
@@ -140,7 +128,7 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
             permutation = rng.permutation(len(cka_indices))
             shuffled_cka = linear_cka(cka_left, cka_right[permutation])
             shuffled_subspace = subspace_right[rng.permutation(len(subspace_indices))]
-            shuffled_svcca, shuffled_pwcca = svcca_pwcca(
+            shuffled_svcca = svcca(
                 subspace_left,
                 shuffled_subspace,
                 explained_variance=config.svcca.explained_variance,
@@ -154,28 +142,23 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
                     "control": "shuffled_tokens",
                     "cka": shuffled_cka,
                     "svcca": shuffled_svcca.mean_correlation,
-                    "pwcca": shuffled_pwcca.similarity,
                 }
             )
 
     summary = pd.DataFrame(pair_rows)
-    svcca_frame, pwcca_frame = pd.DataFrame(svcca_rows), pd.DataFrame(pwcca_rows)
+    svcca_frame = pd.DataFrame(svcca_rows)
     summary.to_csv(summary_path, index=False)
     svcca_frame.to_csv(store.root / "svcca_summary.csv", index=False)
-    pwcca_frame.to_csv(store.root / "pwcca_summary.csv", index=False)
     _matrix(names, pair_rows, "cka").to_csv(store.root / "cka_matrix.csv")
     _matrix(
         names,
         [{**row, "value": row["mean_correlation"]} for row in svcca_rows],
         "value",
     ).to_csv(store.root / "svcca_matrix.csv")
-    _matrix(
-        names, [{**row, "value": row["similarity"]} for row in pwcca_rows], "value"
-    ).to_csv(store.root / "pwcca_matrix.csv")
 
     if config.controls.enabled:
-        # Identity and column-permutation controls need only one SAE; all three
-        # global metrics are invariant to a latent-axis permutation.
+        # Identity and column-permutation controls need only one SAE; both global
+        # metrics are invariant to a latent-axis permutation.
         first = latents[names[0]]
         indices = stable_sample_indices(
             first.shape[0], config.cka.max_samples, config.dataset.random_seed
@@ -186,7 +169,7 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
         )
         permuted = identity[:, permutation]
         for label, other in (("identity", identity), ("column_permutation", permuted)):
-            sub_result, pw_result = svcca_pwcca(
+            sub_result = svcca(
                 identity,
                 other,
                 explained_variance=config.svcca.explained_variance,
@@ -201,7 +184,6 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
                     "control": label,
                     "cka": linear_cka(identity, other),
                     "svcca": sub_result.mean_correlation,
-                    "pwcca": pw_result.similarity,
                 }
             )
         pd.DataFrame(control_rows).to_csv(

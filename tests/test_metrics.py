@@ -7,7 +7,6 @@ from sae_seed_similarity.metrics import (
     ablation_metrics,
     activation_overlap,
     linear_cka,
-    pwcca,
     svcca,
 )
 
@@ -24,12 +23,6 @@ def _assert_global_similarity(
         svcca(
             left, right, explained_variance=1.0, max_components=12, ridge=1e-10
         ).mean_correlation
-        > threshold
-    )
-    assert (
-        pwcca(
-            left, right, explained_variance=1.0, max_components=12, ridge=1e-10
-        ).similarity
         > threshold
     )
 
@@ -68,11 +61,7 @@ def test_shared_low_rank_signal_plus_noise() -> None:
     svcca_result = svcca(
         left, right, explained_variance=0.99, max_components=15, ridge=1e-8
     )
-    pwcca_result = pwcca(
-        left, right, explained_variance=0.99, max_components=15, ridge=1e-8
-    )
     assert svcca_result.mean_correlation > 0.98
-    assert pwcca_result.similarity > 0.98
 
 
 def test_disjoint_activation_supports() -> None:

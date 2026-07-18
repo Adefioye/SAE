@@ -25,7 +25,6 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
                 "cka_standardized": 0.75,
                 "svcca_mean": 0.7,
                 "svcca_median": 0.72,
-                "pwcca": 0.73,
             }
         ]
     )
@@ -35,7 +34,7 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
         index=["seed_0", "seed_1"],
         columns=["seed_0", "seed_1"],
     )
-    for name in ("cka", "svcca", "pwcca"):
+    for name in ("cka", "svcca"):
         matrix.to_csv(store.root / f"{name}_matrix.csv")
     overlap = pd.DataFrame(
         [
@@ -159,7 +158,6 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
                 "control": "identity",
                 "cka": 1.0,
                 "svcca": 1.0,
-                "pwcca": 1.0,
             }
         ]
     ).to_csv(store.root / "controls_summary.csv", index=False)
@@ -168,8 +166,6 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
         correlations=np.array([0.9, 0.8]),
         pca_curve_a=np.array([0.7, 1.0]),
         pca_curve_b=np.array([0.6, 1.0]),
-        pwcca_correlations=np.array([0.9, 0.8]),
-        pwcca_weights=np.array([0.6, 0.4]),
     )
 
     report = run(config)
