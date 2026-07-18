@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sae-seed-similarity"
 version = "0.1.0"
-description = "Reproducible feature, representation, and causal comparison of SAE seeds"
+description = "Reproducible feature and representation comparison of SAE seeds"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

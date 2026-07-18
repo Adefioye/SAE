@@ -1,4 +1,4 @@
-"""Notebook-friendly feature, representation, and intervention metrics.
+"""Notebook-friendly feature and representation metrics.
 
 All public functions accept NumPy arrays. Representation functions additionally
 accept SciPy sparse matrices so TopK SAE latents need not be densified.
@@ -14,7 +14,6 @@ import numpy as np
 from scipy import sparse
 from scipy.linalg import eigh
 from scipy.sparse.linalg import LinearOperator, svds
-from scipy.special import logsumexp
 from scipy.stats import pearsonr, spearmanr
 
 Array: TypeAlias = np.ndarray | sparse.spmatrix
@@ -415,100 +414,3 @@ def svcca(
         pca_curve_a=np.cumsum(pca_left.explained_variance_ratio),
         pca_curve_b=np.cumsum(pca_right.explained_variance_ratio),
     )
-
-
-def log_probabilities(logits: np.ndarray) -> np.ndarray:
-    logits = np.asarray(logits, dtype=np.float64)
-    return logits - logsumexp(logits, axis=-1, keepdims=True)
-
-
-def js_divergence_from_logits(logits_a: np.ndarray, logits_b: np.ndarray) -> float:
-    """Base-2 Jensen-Shannon divergence in the guaranteed range ``[0, 1]``."""
-    log_a = log_probabilities(logits_a)
-    log_b = log_probabilities(logits_b)
-    log_midpoint = np.logaddexp(log_a, log_b) - np.log(2.0)
-    probability_a = np.exp(log_a)
-    probability_b = np.exp(log_b)
-    kl_a = np.sum(probability_a * (log_a - log_midpoint), axis=-1)
-    kl_b = np.sum(probability_b * (log_b - log_midpoint), axis=-1)
-    return float(np.mean((kl_a + kl_b) / (2.0 * np.log(2.0))))
-
-
-def _cosine(left: np.ndarray, right: np.ndarray) -> float:
-    denominator = np.linalg.norm(left) * np.linalg.norm(right)
-    return float(left @ right / denominator) if denominator > 0 else np.nan
-
-
-def ablation_metrics(
-    baseline_logits_a: np.ndarray,
-    ablated_logits_a: np.ndarray,
-    baseline_logits_b: np.ndarray,
-    ablated_logits_b: np.ndarray,
-    *,
-    top_k: int = 10,
-    minimum_effect_norm: float = 1e-8,
-) -> dict[str, Any]:
-    """Compare one prompt's ablations against each SAE's own baseline logits."""
-    arrays = [
-        np.asarray(item, dtype=np.float64).ravel()
-        for item in (
-            baseline_logits_a,
-            ablated_logits_a,
-            baseline_logits_b,
-            ablated_logits_b,
-        )
-    ]
-    if len({len(item) for item in arrays}) != 1:
-        raise ValueError("All logit vectors must have the same vocabulary width")
-    base_a, ablated_a, base_b, ablated_b = arrays
-    delta_a = ablated_a - base_a
-    delta_b = ablated_b - base_b
-    norm_a, norm_b = float(np.linalg.norm(delta_a)), float(np.linalg.norm(delta_b))
-    zero_a, zero_b = norm_a <= minimum_effect_norm, norm_b <= minimum_effect_norm
-    logit_pearson, _ = _safe_correlation(delta_a, delta_b, "pearson")
-    logit_spearman, _ = _safe_correlation(delta_a, delta_b, "spearman")
-    probability_a, probability_ablated_a = (
-        np.exp(log_probabilities(base_a)),
-        np.exp(log_probabilities(ablated_a)),
-    )
-    probability_b, probability_ablated_b = (
-        np.exp(log_probabilities(base_b)),
-        np.exp(log_probabilities(ablated_b)),
-    )
-    probability_delta_a = probability_ablated_a - probability_a
-    probability_delta_b = probability_ablated_b - probability_b
-    probability_pearson, _ = _safe_correlation(
-        probability_delta_a, probability_delta_b, "pearson"
-    )
-    k = min(top_k, len(base_a))
-    top_a = set(np.argpartition(ablated_a, -k)[-k:].tolist())
-    top_b = set(np.argpartition(ablated_b, -k)[-k:].tolist())
-    scale = float(max(norm_a, norm_b, float(np.finfo(np.float64).eps)))
-    status = (
-        "inconclusive_zero_effect"
-        if zero_a and zero_b
-        else ("one_sided_negligible_effect" if zero_a or zero_b else "informative")
-    )
-    ablation_jsd = js_divergence_from_logits(ablated_a, ablated_b)
-    baseline_jsd = js_divergence_from_logits(base_a, base_b)
-    return {
-        "effect_jsd_a": js_divergence_from_logits(base_a, ablated_a),
-        "effect_jsd_b": js_divergence_from_logits(base_b, ablated_b),
-        "ablation_jsd_between_seeds": ablation_jsd,
-        "baseline_jsd_between_seeds": baseline_jsd,
-        "baseline_adjusted_ablation_jsd": ablation_jsd - baseline_jsd,
-        "logit_delta_cosine": _cosine(delta_a, delta_b),
-        "logit_delta_pearson": logit_pearson,
-        "logit_delta_spearman": logit_spearman,
-        "normalized_logit_delta_l2": float(np.linalg.norm(delta_a - delta_b) / scale),
-        "effect_norm_a": norm_a,
-        "effect_norm_b": norm_b,
-        "effect_norm_ratio": float(norm_a / norm_b) if norm_b > 0 else np.nan,
-        "top1_disagreement": int(np.argmax(ablated_a) != np.argmax(ablated_b)),
-        "topk_overlap": len(top_a & top_b) / k,
-        "prediction_changed_a": int(np.argmax(base_a) != np.argmax(ablated_a)),
-        "prediction_changed_b": int(np.argmax(base_b) != np.argmax(ablated_b)),
-        "probability_delta_cosine": _cosine(probability_delta_a, probability_delta_b),
-        "probability_delta_pearson": probability_pearson,
-        "effect_status": status,
-    }

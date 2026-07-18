@@ -7,8 +7,8 @@ script is the command-line version of
 ## SAE seed evaluation pipeline
 
 The `sae_seed_similarity` package compares independently initialized SAEs at
-three distinct levels: individual matched features, the geometry of the full
-latent representation, and downstream causal effects. The default configuration
+two distinct levels: individual matched features and the geometry of the full
+latent representation. The default configuration
 is [configs/pythia_160m_two_seed.yaml](configs/pythia_160m_two_seed.yaml). It
 loads the final SAELens 6.46 TopK checkpoints from
 `kokolamba/pythia-160m-seeds/pythia-160m-500m-two-seed/trained_saes/{seed_0,seed_1}`.
@@ -31,8 +31,8 @@ pytest
 ```
 
 The tests cover identical representations, permuted axes, orthogonal rotations,
-shared low-rank signal, disjoint activation support, identical/opposite/zero
-ablation effects, configuration validation, and sparse-cache round trips.
+shared low-rank signal, disjoint activation support, configuration validation,
+and sparse-cache round trips.
 
 ### Run the experiment
 
@@ -43,7 +43,6 @@ Each stage is independently resumable and reuses complete artifacts in
 python -m sae_seed_similarity.collect_activations --config configs/pythia_160m_two_seed.yaml
 python -m sae_seed_similarity.match_features --config configs/pythia_160m_two_seed.yaml
 python -m sae_seed_similarity.compare_representations --config configs/pythia_160m_two_seed.yaml
-python -m sae_seed_similarity.run_ablations --config configs/pythia_160m_two_seed.yaml
 python -m sae_seed_similarity.make_report --config configs/pythia_160m_two_seed.yaml
 ```
 
@@ -55,8 +54,7 @@ python -m sae_seed_similarity.run_all --config configs/pythia_160m_two_seed.yaml
 
 For a quick end-to-end experiment, copy the YAML and reduce
 `dataset.max_sequences`, `cka.max_samples`, `svcca.max_samples`,
-`svcca.max_components`, `ablation.max_feature_pairs`,
-`ablation.examples_per_pair`, and `bootstrap.samples`.
+`svcca.max_components`, and `bootstrap.samples`.
 
 ### Shared data and matrix shapes
 
@@ -69,8 +67,7 @@ model activations in the same order.
 For SAE seed `s`, its post-nonlinearity latent matrix is
 `X_s [N_tokens, d_sae_s]`. TopK matrices are saved as SciPy CSR `.npz`; the
 default 32-active-of-32,768 representation therefore remains sparse. Decoder
-and encoder dictionaries have shape `[d_sae, d_model]`. Ablation logit vectors
-have shape `[vocabulary]` for each selected token and downstream offset.
+and encoder dictionaries have shape `[d_sae, d_model]`.
 
 ### What the metrics establish
 
@@ -91,25 +88,18 @@ have shape `[vocabulary]` for each selected token and downstream offset.
 - SVCCA performs centered PCA/SVD, retains the configured dominant variance,
   then applies ridge-stabilized CCA. It shows dominant shared subspaces, not
   aligned individual features or causal roles.
-- Ablation replaces the model activation with each SAE's own full reconstruction.
-  For seed A it compares `z_all_A` with `z_-a_A`; seed B is treated separately.
-  This controls for unequal reconstruction errors. Logit-delta cosine is the
-  primary functional direction metric; base-2 JSD, probability-delta similarity,
-  top-1 disagreement, top-k overlap, effect norms, and correlations are also
-  saved. Two negligible effects are explicitly labeled inconclusive.
 
 Correlation and geometric similarity do not prove that a representation is
-causally used. Conversely, zero ablation can be distribution-shifting and later
-layers can self-repair, so causal results should be interpreted with those
-limitations in mind.
+causally used. The pipeline's conclusions are therefore limited to feature,
+activation, and representation similarity.
 
 ### Controls and statistics
 
 Random cross-seed features are approximately matched on activation frequency,
 mean nonzero activation, decoder norm, layer, and SAE width. Shuffled-token,
 identity, and column-permutation controls validate row correspondence and global
-metric invariances. Bootstrap intervals are computed over prompt rows and feature
-pairs; matched-control summaries include median differences, standardized effect
+metric invariances. Bootstrap intervals are computed over feature pairs;
+matched-control summaries include median differences, standardized effect
 sizes, and paired permutation tests where applicable. With three or more SAEs,
 all seed pairs are evaluated and the resulting pair table can itself be
 bootstrapped across seed pairs.
@@ -126,8 +116,6 @@ activation_overlap.parquet
 cka_matrix.csv
 svcca_summary.csv
 svcca_correlations/
-ablation_prompt_level.parquet
-ablation_feature_level.parquet
 controls_summary.csv
 plots/*.png
 plots/*.svg
@@ -139,8 +127,8 @@ tables, and control overlap tables are retained as reusable intermediates.
 
 ### Memory and runtime
 
-Activation collection and ablation require the base model and at least one SAE
-on the selected device. Reduce `activations.encoder_batch_tokens` if dense
+Activation collection requires the base model and at least one SAE on the
+selected device. Reduce `activations.encoder_batch_tokens` if dense
 per-batch TopK encoder outputs exhaust device memory. CKA uses sparse covariance
 identities rather than dense centered matrices. SVCCA uses centered sparse
 SVD capped by `max_components`; these are the most expensive representation
@@ -154,9 +142,6 @@ increase `candidate_top_k` to trade memory/runtime for candidate coverage.
 | High Hungarian similarity and high activation overlap | Similar individual features and similar firing behavior |
 | Low feature matching but high CKA | Different feature axes but similar global token geometry |
 | Low feature matching but high SVCCA | Different dictionaries may span similar dominant subspaces |
-| High geometric similarity but low ablation similarity | Similar representation geometry but different downstream causal roles |
-| High activation overlap and high ablation similarity | Strong evidence that matched features behave similarly |
-| Low ablation JSD but negligible individual effects | Inconclusive; both features may simply do nothing |
 
 ## Run the 500M-token two-seed experiment on RunPod
 

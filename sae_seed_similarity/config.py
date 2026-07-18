@@ -84,25 +84,6 @@ class SVCCAConfig:
 
 
 @dataclass
-class AblationConfig:
-    enabled: bool = True
-    max_feature_pairs: int = 500
-    examples_per_pair: int = 50
-    minimum_activation: float = 0.0
-    selection_mode: Literal[
-        "both_active", "either_active", "top_activating", "top_intersection"
-    ] = "both_active"
-    intervention: Literal["zero"] = "zero"
-    intervention_scope: Literal[
-        "selected_token", "active_positions", "all_positions"
-    ] = "selected_token"
-    evaluation_horizon: int = 1
-    top_k: int = 10
-    include_clean_logits: bool = True
-    minimum_effect_norm: float = 1e-8
-
-
-@dataclass
 class ControlsConfig:
     enabled: bool = True
     random_pairs_per_match: int = 1
@@ -124,7 +105,6 @@ class EvaluationConfig:
     matching: MatchingConfig = field(default_factory=MatchingConfig)
     cka: CKAConfig = field(default_factory=CKAConfig)
     svcca: SVCCAConfig = field(default_factory=SVCCAConfig)
-    ablation: AblationConfig = field(default_factory=AblationConfig)
     controls: ControlsConfig = field(default_factory=ControlsConfig)
     bootstrap: BootstrapConfig = field(default_factory=BootstrapConfig)
     output_dir: str = "results/sae_seed_similarity"
@@ -176,13 +156,6 @@ class EvaluationConfig:
             or self.svcca.max_components < 1
         ):
             raise ValueError("representation sample/component limits are too small")
-        if (
-            self.ablation.max_feature_pairs < 1
-            or self.ablation.examples_per_pair < 1
-            or self.ablation.evaluation_horizon < 1
-            or self.ablation.top_k < 1
-        ):
-            raise ValueError("ablation limits and top_k must be positive")
         if self.bootstrap.samples < 1:
             raise ValueError("bootstrap.samples must be positive")
         if not 0 < self.bootstrap.confidence_level < 1:
@@ -229,7 +202,6 @@ def load_config(path: str | Path) -> EvaluationConfig:
         matching=_construct(MatchingConfig, raw.get("matching")),
         cka=_construct(CKAConfig, raw.get("cka")),
         svcca=_construct(SVCCAConfig, raw.get("svcca")),
-        ablation=_construct(AblationConfig, raw.get("ablation")),
         controls=_construct(ControlsConfig, raw.get("controls")),
         bootstrap=_construct(BootstrapConfig, raw.get("bootstrap")),
         output_dir=raw.get("output_dir", "results/sae_seed_similarity"),

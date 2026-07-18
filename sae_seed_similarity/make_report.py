@@ -10,7 +10,6 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 
 from .config import EvaluationConfig, load_config
 from .plotting import distribution, heatmap, save_figure, scatter
@@ -54,30 +53,6 @@ def _control_summary(config: EvaluationConfig, store: ArtifactStore) -> pd.DataF
                     "ci_high": interval.high,
                 }
             )
-    feature_ablation = _read_if(store.root / "ablation_feature_level.parquet", True)
-    if len(feature_ablation) and "pair_type" in feature_ablation:
-        for pair_type, frame in feature_ablation.groupby("pair_type"):
-            for metric in (
-                "mean_logit_delta_cosine",
-                "mean_ablation_jsd_between_seeds",
-                "top1_disagreement_rate",
-            ):
-                if metric in frame:
-                    interval = bootstrap_ci(
-                        frame[metric].to_numpy(),
-                        samples=config.bootstrap.samples,
-                        confidence_level=config.bootstrap.confidence_level,
-                        random_seed=config.dataset.random_seed,
-                    )
-                    rows.append(
-                        {
-                            "control": pair_type,
-                            "metric": metric,
-                            "estimate": interval.estimate,
-                            "ci_low": interval.low,
-                            "ci_high": interval.high,
-                        }
-                    )
     result = pd.DataFrame(rows)
     result.to_csv(store.root / "controls_summary.csv", index=False)
     return result
@@ -122,36 +97,6 @@ def _statistical_summary(
                 {"level": "feature_pair", "metric": "activation_jaccard", **stats}
             )
 
-    feature_ablation = _read_if(store.root / "ablation_feature_level.parquet", True)
-    if len(feature_ablation) and len(random_pairs):
-        matched = feature_ablation[feature_ablation["pair_type"] == "matched"].rename(
-            columns={"feature_b": "matched_feature_b"}
-        )
-        random_values = feature_ablation[
-            feature_ablation["pair_type"] == "random_control"
-        ].merge(
-            random_pairs,
-            on=["sae_a", "sae_b", "feature_a", "feature_b"],
-        )
-        keys = ["sae_a", "sae_b", "feature_a", "matched_feature_b"]
-        for metric in (
-            "mean_logit_delta_cosine",
-            "mean_ablation_jsd_between_seeds",
-            "top1_disagreement_rate",
-        ):
-            if metric not in matched or metric not in random_values:
-                continue
-            control_mean = (
-                random_values.groupby(keys)[metric].mean().rename("control_value")
-            )
-            joined = matched.set_index(keys).join(control_mean, how="inner")
-            stats = matched_control_statistics(
-                joined[metric].to_numpy(),
-                joined["control_value"].to_numpy(),
-                random_seed=config.dataset.random_seed,
-            )
-            rows.append({"level": "feature_pair", "metric": metric, **stats})
-
     seed_pairs = _read_if(store.root / "seed_pair_summary.csv")
     if len(seed_pairs) >= 3:
         for metric in ("cka", "cka_standardized", "svcca_mean"):
@@ -187,8 +132,6 @@ def _make_plots(store: ArtifactStore) -> None:
             save_figure(heatmap(matrix, title, "SAE seed"), plot_dir, output_name)
 
     overlap = _read_if(store.root / "activation_overlap.parquet", True)
-    ablation = _read_if(store.root / "ablation_feature_level.parquet", True)
-    prompt = _read_if(store.root / "ablation_prompt_level.parquet", True)
     control_overlap = _read_if(store.root / "control_activation_overlap.parquet", True)
     if len(overlap):
         save_figure(
@@ -201,33 +144,6 @@ def _make_plots(store: ArtifactStore) -> None:
             plot_dir,
             "decoder_cosine_vs_activation_jaccard",
         )
-    merged = pd.DataFrame()
-    if len(overlap) and len(ablation):
-        keys = ["sae_a", "sae_b", "feature_a", "feature_b"]
-        merged = overlap.merge(
-            ablation[ablation.get("pair_type", "matched") == "matched"], on=keys
-        )
-        if len(merged):
-            save_figure(
-                scatter(
-                    merged,
-                    "decoder_cosine",
-                    "mean_logit_delta_cosine",
-                    title="Decoder similarity vs causal-effect similarity",
-                ),
-                plot_dir,
-                "decoder_cosine_vs_logit_delta_cosine",
-            )
-            save_figure(
-                scatter(
-                    merged,
-                    "jaccard",
-                    "mean_logit_delta_cosine",
-                    title="Activation overlap vs functional similarity",
-                ),
-                plot_dir,
-                "activation_overlap_vs_functional_similarity",
-            )
     if len(overlap) and len(control_overlap):
         matched = overlap[["jaccard"]].copy()
         matched["pair_type"] = "matched"
@@ -246,31 +162,6 @@ def _make_plots(store: ArtifactStore) -> None:
             plot_dir,
             "matched_vs_random_distributions",
         )
-    if len(prompt):
-        effect = (prompt["effect_jsd_a"] + prompt["effect_jsd_b"]) / 2
-        prompt = prompt.assign(mean_effect_jsd=effect)
-        save_figure(
-            scatter(
-                prompt,
-                "mean_effect_jsd",
-                "ablation_jsd_between_seeds",
-                title="Ablation divergence vs effect magnitude",
-                hue="pair_type",
-            ),
-            plot_dir,
-            "ablation_jsd_vs_effect_magnitude",
-        )
-        save_figure(
-            distribution(
-                prompt,
-                "top1_disagreement",
-                "pair_type",
-                title="Top-1 disagreement by pair type",
-            ),
-            plot_dir,
-            "top1_disagreement_distributions",
-        )
-
     spectra_files = sorted((store.root / "svcca_correlations").glob("*.npz"))
     if spectra_files:
         figure, axis = plt.subplots(figsize=(8, 5))
@@ -301,24 +192,6 @@ def _make_plots(store: ArtifactStore) -> None:
         pca_axis.legend(fontsize="small")
         save_figure(figure, plot_dir, "canonical_correlation_spectra")
         save_figure(pca_figure, plot_dir, "pca_explained_variance_curves")
-    if len(merged):
-        merged = merged.copy()
-        frequency = merged[["activation_frequency_a", "activation_frequency_b"]].mean(
-            axis=1
-        )
-        if frequency.nunique() > 1:
-            merged["frequency_bin"] = pd.qcut(
-                frequency,
-                q=min(10, max(2, len(merged) // 20)),
-                duplicates="drop",
-            ).astype(str)
-            figure, axis = plt.subplots(figsize=(10, 5))
-            sns.boxplot(
-                data=merged, x="frequency_bin", y="mean_logit_delta_cosine", ax=axis
-            )
-            axis.tick_params(axis="x", rotation=45)
-            axis.set_title("Functional similarity stratified by feature frequency")
-            save_figure(figure, plot_dir, "feature_frequency_stratified_results")
 
 
 def run(config: EvaluationConfig) -> Path:
@@ -353,7 +226,7 @@ def run(config: EvaluationConfig) -> Path:
         "",
         "## Interpretation guardrail",
         "",
-        "A pair is not treated as functionally equivalent when both ablations have negligible effects, even if their output distributions are similar.",
+        "Feature matching, activation overlap, CKA, and SVCCA establish correlational or geometric similarity; they do not establish causal equivalence.",
     ]
     report_path.write_text("\n".join(lines), encoding="utf-8")
     LOGGER.info("Wrote report and plots under %s", store.root)

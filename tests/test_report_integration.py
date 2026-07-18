@@ -107,49 +107,6 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
     control_overlap.to_parquet(
         store.root / "control_activation_overlap.parquet", index=False
     )
-    feature_rows = []
-    for pair_type, features, cosine, jsd, disagreement in (
-        ("matched", ((0, 1), (2, 3)), 0.8, 0.05, 0.1),
-        ("random_control", ((0, 4), (2, 5)), 0.1, 0.3, 0.6),
-    ):
-        for feature_a, feature_b in features:
-            feature_rows.append(
-                {
-                    "sae_a": "seed_0",
-                    "sae_b": "seed_1",
-                    "feature_a": feature_a,
-                    "feature_b": feature_b,
-                    "pair_type": pair_type,
-                    "mean_logit_delta_cosine": cosine,
-                    "mean_ablation_jsd_between_seeds": jsd,
-                    "top1_disagreement_rate": disagreement,
-                    "mean_effect_jsd_a": 0.1,
-                    "mean_effect_jsd_b": 0.1,
-                    "informative_effect_fraction": 1.0,
-                }
-            )
-    pd.DataFrame(feature_rows).to_parquet(
-        store.root / "ablation_feature_level.parquet", index=False
-    )
-    prompt = pd.DataFrame(
-        [
-            {
-                "pair_type": "matched",
-                "effect_jsd_a": 0.1,
-                "effect_jsd_b": 0.1,
-                "ablation_jsd_between_seeds": 0.05,
-                "top1_disagreement": 0,
-            },
-            {
-                "pair_type": "random_control",
-                "effect_jsd_a": 0.1,
-                "effect_jsd_b": 0.1,
-                "ablation_jsd_between_seeds": 0.3,
-                "top1_disagreement": 1,
-            },
-        ]
-    )
-    prompt.to_parquet(store.root / "ablation_prompt_level.parquet", index=False)
     pd.DataFrame(
         [
             {

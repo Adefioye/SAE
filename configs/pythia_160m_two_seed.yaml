@@ -61,19 +61,6 @@ svcca:
   max_samples: 50000
   ridge: 1.0e-6
 
-ablation:
-  enabled: true
-  max_feature_pairs: 500
-  examples_per_pair: 50
-  minimum_activation: 0.0
-  selection_mode: both_active
-  intervention: zero
-  intervention_scope: selected_token
-  evaluation_horizon: 1
-  top_k: 10
-  include_clean_logits: true
-  minimum_effect_norm: 1.0e-8
-
 controls:
   enabled: true
   random_pairs_per_match: 1

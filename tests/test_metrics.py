@@ -4,7 +4,6 @@ import numpy as np
 from scipy import sparse
 
 from sae_seed_similarity.metrics import (
-    ablation_metrics,
     activation_overlap,
     linear_cka,
     svcca,
@@ -79,29 +78,3 @@ def test_empty_activation_sets_report_reason() -> None:
     result = activation_overlap(values, values, 0, 0)
     assert np.isnan(result["jaccard"])
     assert result["empty_reason"] == "both_active_sets_empty"
-
-
-def test_identical_ablation_effects() -> None:
-    baseline = np.array([2.0, 1.0, 0.0, -1.0])
-    delta = np.array([-0.2, 0.3, 0.0, -0.1])
-    result = ablation_metrics(
-        baseline, baseline + delta, baseline, baseline + delta, top_k=2
-    )
-    assert result["logit_delta_cosine"] > 0.999999
-    assert result["ablation_jsd_between_seeds"] < 1e-12
-    assert result["top1_disagreement"] == 0
-    assert result["effect_status"] == "informative"
-
-
-def test_opposite_ablation_effects() -> None:
-    baseline = np.array([2.0, 1.0, 0.0, -1.0])
-    delta = np.array([-0.2, 0.3, 0.1, -0.2])
-    result = ablation_metrics(baseline, baseline + delta, baseline, baseline - delta)
-    assert result["logit_delta_cosine"] < -0.999999
-
-
-def test_both_zero_effects_are_inconclusive() -> None:
-    baseline = np.array([2.0, 1.0, 0.0, -1.0])
-    result = ablation_metrics(baseline, baseline, baseline, baseline)
-    assert result["effect_status"] == "inconclusive_zero_effect"
-    assert np.isnan(result["logit_delta_cosine"])

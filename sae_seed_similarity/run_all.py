@@ -10,7 +10,6 @@ from .compare_representations import run as compare_representations
 from .config import load_config
 from .make_report import run as make_report
 from .match_features import run as match_features
-from .run_ablations import run as run_ablations
 from .utils import configure_logging
 
 
@@ -24,7 +23,6 @@ def main() -> None:
     collect(config)
     match_features(config)
     compare_representations(config)
-    run_ablations(config)
     make_report(config)
 
 

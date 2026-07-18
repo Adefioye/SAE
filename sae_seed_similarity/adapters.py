@@ -11,7 +11,7 @@ from .config import SAEConfig
 
 
 class SAEAdapter(ABC):
-    """Interface used by collection, matching, and intervention code."""
+    """Interface used by activation collection and feature matching."""
 
     name: str
 
