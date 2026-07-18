@@ -1,0 +1,612 @@
+"""Notebook-friendly feature, representation, and intervention metrics.
+
+All public functions accept NumPy arrays. Representation functions additionally
+accept SciPy sparse matrices so TopK SAE latents need not be densified.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, TypeAlias
+import warnings
+
+import numpy as np
+from scipy import sparse
+from scipy.linalg import eigh
+from scipy.sparse.linalg import LinearOperator, svds
+from scipy.special import logsumexp
+from scipy.stats import pearsonr, spearmanr
+
+Array: TypeAlias = np.ndarray | sparse.spmatrix
+
+
+def _column(matrix: Array, index: int) -> np.ndarray:
+    if sparse.issparse(matrix):
+        return np.asarray(matrix.getcol(index).toarray()).ravel()
+    return np.asarray(matrix[:, index]).ravel()
+
+
+def _safe_correlation(
+    left: np.ndarray, right: np.ndarray, method: Literal["pearson", "spearman"]
+) -> tuple[float, str | None]:
+    if len(left) < 2:
+        return np.nan, "fewer_than_two_observations"
+    if np.ptp(left) == 0 or np.ptp(right) == 0:
+        return np.nan, "zero_variance"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        value = (
+            pearsonr(left, right).statistic
+            if method == "pearson"
+            else spearmanr(left, right).statistic
+        )
+    return float(value), None if np.isfinite(value) else "numerical_failure"
+
+
+def activation_overlap(
+    activations_a: Array,
+    activations_b: Array,
+    feature_a: int,
+    feature_b: int,
+    *,
+    threshold_a: float = 0.0,
+    threshold_b: float = 0.0,
+    sequence_ids: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Compare a matched feature pair over shared token rows.
+
+    Args:
+        activations_a: Post-nonlinearity latents ``[tokens, d_sae_a]``.
+        activations_b: Post-nonlinearity latents ``[tokens, d_sae_b]``.
+        sequence_ids: Optional shared sequence identifier for every token row.
+
+    Empty supports produce NaN set metrics and an explicit ``empty_reason``.
+    """
+    if activations_a.shape[0] != activations_b.shape[0]:
+        raise ValueError("Activation matrices must contain identical token rows")
+    left = _column(activations_a, feature_a).astype(np.float64, copy=False)
+    right = _column(activations_b, feature_b).astype(np.float64, copy=False)
+    active_a = left > threshold_a
+    active_b = right > threshold_b
+    count_a = int(active_a.sum())
+    count_b = int(active_b.sum())
+    intersection = active_a & active_b
+    union = active_a | active_b
+    count_intersection = int(intersection.sum())
+    count_union = int(union.sum())
+    empty_reason: str | None = None
+    if count_a == 0 and count_b == 0:
+        empty_reason = "both_active_sets_empty"
+    elif count_a == 0:
+        empty_reason = "feature_a_active_set_empty"
+    elif count_b == 0:
+        empty_reason = "feature_b_active_set_empty"
+
+    def divide(numerator: float, denominator: float) -> float:
+        return float(numerator / denominator) if denominator else np.nan
+
+    pearson_all, pearson_all_reason = _safe_correlation(left, right, "pearson")
+    spearman_all, spearman_all_reason = _safe_correlation(left, right, "spearman")
+    pearson_union, pearson_union_reason = _safe_correlation(
+        left[union], right[union], "pearson"
+    )
+    spearman_union, spearman_union_reason = _safe_correlation(
+        left[union], right[union], "spearman"
+    )
+    pearson_intersection, pearson_intersection_reason = _safe_correlation(
+        left[intersection], right[intersection], "pearson"
+    )
+    spearman_intersection, spearman_intersection_reason = _safe_correlation(
+        left[intersection], right[intersection], "spearman"
+    )
+    weighted_denominator = np.maximum(left, right).sum()
+
+    result: dict[str, Any] = {
+        "feature_a": int(feature_a),
+        "feature_b": int(feature_b),
+        "n_tokens": int(len(left)),
+        "active_count_a": count_a,
+        "active_count_b": count_b,
+        "activation_frequency_a": divide(count_a, len(left)),
+        "activation_frequency_b": divide(count_b, len(left)),
+        "intersection_count": count_intersection,
+        "union_count": count_union,
+        "jaccard": divide(count_intersection, count_union),
+        "overlap_coefficient": divide(count_intersection, min(count_a, count_b)),
+        "p_b_active_given_a": divide(count_intersection, count_a),
+        "p_a_active_given_b": divide(count_intersection, count_b),
+        "precision_a_to_b": divide(count_intersection, count_a),
+        "recall_a_to_b": divide(count_intersection, count_b),
+        "precision_b_to_a": divide(count_intersection, count_b),
+        "recall_b_to_a": divide(count_intersection, count_a),
+        "weighted_jaccard": divide(np.minimum(left, right).sum(), weighted_denominator),
+        "pearson_all": pearson_all,
+        "spearman_all": spearman_all,
+        "pearson_union": pearson_union,
+        "spearman_union": spearman_union,
+        "pearson_intersection": pearson_intersection,
+        "spearman_intersection": spearman_intersection,
+        "empty_reason": empty_reason,
+        "pearson_all_reason": pearson_all_reason,
+        "spearman_all_reason": spearman_all_reason,
+        "pearson_union_reason": pearson_union_reason,
+        "spearman_union_reason": spearman_union_reason,
+        "pearson_intersection_reason": pearson_intersection_reason,
+        "spearman_intersection_reason": spearman_intersection_reason,
+    }
+    if sequence_ids is not None:
+        sequence_ids = np.asarray(sequence_ids)
+        if len(sequence_ids) != len(left):
+            raise ValueError("sequence_ids length must equal the number of token rows")
+        seq_a = set(sequence_ids[active_a].tolist())
+        seq_b = set(sequence_ids[active_b].tolist())
+        seq_intersection = len(seq_a & seq_b)
+        seq_union = len(seq_a | seq_b)
+        result.update(
+            sequence_active_count_a=len(seq_a),
+            sequence_active_count_b=len(seq_b),
+            sequence_jaccard=divide(seq_intersection, seq_union),
+            sequence_overlap_coefficient=divide(
+                seq_intersection, min(len(seq_a), len(seq_b))
+            ),
+        )
+    return result
+
+
+def _scale_columns(matrix: Array, scales: np.ndarray) -> Array:
+    if sparse.issparse(matrix):
+        return matrix @ sparse.diags(scales)
+    return np.asarray(matrix) * scales
+
+
+def _centered_cross_frobenius_squared(left: Array, right: Array) -> float:
+    """Compute ``||X.T H Y||_F^2`` without materializing centered matrices."""
+    n_rows = left.shape[0]
+    cross = left.T @ right
+    sum_left = np.asarray(left.sum(axis=0)).ravel().astype(np.float64)
+    sum_right = np.asarray(right.sum(axis=0)).ravel().astype(np.float64)
+    if sparse.issparse(cross):
+        raw_squared = float(
+            np.dot(cross.data.astype(np.float64), cross.data.astype(np.float64))
+        )
+        cross_sum_product = float(sum_left @ np.asarray(cross @ sum_right).ravel())
+    else:
+        cross = np.asarray(cross, dtype=np.float64)
+        raw_squared = float(np.square(cross).sum())
+        cross_sum_product = float(sum_left @ cross @ sum_right)
+    mean_outer_squared = float(
+        np.dot(sum_left, sum_left) * np.dot(sum_right, sum_right) / n_rows**2
+    )
+    value = raw_squared - (2.0 / n_rows) * cross_sum_product + mean_outer_squared
+    return max(value, 0.0)
+
+
+def linear_cka(
+    left: Array,
+    right: Array,
+    *,
+    center: bool = True,
+    standardize_features: bool = False,
+) -> float:
+    """Linear CKA for shared rows in ``[samples, features]`` matrices.
+
+    The float64 covariance-statistic computation works with different widths and
+    sparse matrices. Feature standardization changes the estimand by giving rare,
+    low-variance features equal scale; raw activation CKA is the default.
+    """
+    if left.ndim != 2 or right.ndim != 2 or left.shape[0] != right.shape[0]:
+        raise ValueError("CKA inputs must be 2D matrices with identical sample rows")
+    if left.shape[0] < 2:
+        raise ValueError("CKA requires at least two samples")
+    left = left.astype(np.float64, copy=False)
+    right = right.astype(np.float64, copy=False)
+    if standardize_features:
+
+        def inverse_std(matrix: Array) -> np.ndarray:
+            mean = np.asarray(matrix.mean(axis=0)).ravel()
+            second = (
+                np.asarray(matrix.power(2).mean(axis=0)).ravel()
+                if sparse.issparse(matrix)
+                else np.mean(np.square(matrix), axis=0)
+            )
+            variance = np.maximum(second - mean**2, 0.0)
+            scale = np.zeros_like(variance)
+            valid = variance > np.finfo(np.float64).eps
+            scale[valid] = 1.0 / np.sqrt(variance[valid])
+            return scale
+
+        left = _scale_columns(left, inverse_std(left))
+        right = _scale_columns(right, inverse_std(right))
+    if not center:
+        cross = left.T @ right
+        auto_left = left.T @ left
+        auto_right = right.T @ right
+
+        def norm(value: Any) -> float:
+            return (
+                float(np.dot(value.data, value.data))
+                if sparse.issparse(value)
+                else float(np.square(value).sum())
+            )
+
+        numerator = norm(cross)
+        denominator = np.sqrt(norm(auto_left) * norm(auto_right))
+    else:
+        numerator = _centered_cross_frobenius_squared(left, right)
+        denominator = np.sqrt(
+            _centered_cross_frobenius_squared(left, left)
+            * _centered_cross_frobenius_squared(right, right)
+        )
+    if denominator <= np.finfo(np.float64).eps:
+        raise ValueError("CKA is undefined for a zero-variance representation")
+    return float(np.clip(numerator / denominator, 0.0, 1.0 + 1e-10))
+
+
+@dataclass
+class PCAResult:
+    scores: np.ndarray
+    explained_variance_ratio: np.ndarray
+    retained_components: int
+    explained_variance_retained: float
+    target_reached: bool
+
+
+def _centered_operator(matrix: sparse.spmatrix) -> LinearOperator:
+    matrix = matrix.astype(np.float64).tocsr()
+    mean = np.asarray(matrix.mean(axis=0)).ravel()
+    n_rows, n_columns = matrix.shape
+
+    def matvec(vector: np.ndarray) -> np.ndarray:
+        return np.asarray(matrix @ vector).ravel() - float(mean @ vector)
+
+    def rmatvec(vector: np.ndarray) -> np.ndarray:
+        return np.asarray(matrix.T @ vector).ravel() - mean * vector.sum()
+
+    def matmat(values: np.ndarray) -> np.ndarray:
+        return np.asarray(matrix @ values) - np.outer(np.ones(n_rows), mean @ values)
+
+    def rmatmat(values: np.ndarray) -> np.ndarray:
+        return np.asarray(matrix.T @ values) - np.outer(mean, values.sum(axis=0))
+
+    return LinearOperator(
+        shape=(n_rows, n_columns),
+        dtype=np.dtype(np.float64),
+        matvec=matvec,
+        rmatvec=rmatvec,
+        matmat=matmat,
+        rmatmat=rmatmat,
+    )
+
+
+def _pca_reduce(
+    matrix: Array,
+    explained_variance: float,
+    max_components: int,
+    random_seed: int,
+) -> PCAResult:
+    """PCA-reduce ``[samples, features]`` with exact or sparse centered SVD."""
+    n_rows, n_columns = matrix.shape
+    maximum_rank = min(n_rows - 1, n_columns)
+    if maximum_rank < 1:
+        raise ValueError("PCA requires at least two samples and one feature")
+    requested = min(max_components, maximum_rank)
+    if sparse.issparse(matrix):
+        matrix64 = matrix.astype(np.float64)
+        mean = np.asarray(matrix64.mean(axis=0)).ravel()
+        total_variance = float(matrix64.power(2).sum() - n_rows * np.dot(mean, mean))
+        if requested >= maximum_rank and n_rows * n_columns <= 20_000_000:
+            centered = matrix64.toarray() - mean
+            u, singular, _ = np.linalg.svd(centered, full_matrices=False)
+            singular = singular[:requested]
+            u = u[:, :requested]
+        else:
+            operator = _centered_operator(matrix64)
+            v0 = np.random.default_rng(random_seed).normal(size=min(operator.shape))
+            u, singular, _ = svds(operator, k=requested, which="LM", v0=v0)
+            order = np.argsort(singular)[::-1]
+            u, singular = u[:, order], singular[order]
+    else:
+        dense = np.asarray(matrix, dtype=np.float64)
+        centered = dense - dense.mean(axis=0, keepdims=True)
+        total_variance = float(np.square(centered).sum())
+        u, singular, _ = np.linalg.svd(centered, full_matrices=False)
+        u, singular = u[:, :requested], singular[:requested]
+    if total_variance <= np.finfo(np.float64).eps:
+        raise ValueError("PCA is undefined for a zero-variance representation")
+    ratios = np.square(singular) / total_variance
+    cumulative = np.cumsum(ratios)
+    reached = bool(cumulative[-1] >= explained_variance - 1e-12)
+    retained = (
+        min(int(np.searchsorted(cumulative, explained_variance) + 1), len(singular))
+        if reached
+        else len(singular)
+    )
+    return PCAResult(
+        scores=u[:, :retained] * singular[:retained],
+        explained_variance_ratio=ratios,
+        retained_components=retained,
+        explained_variance_retained=float(cumulative[retained - 1]),
+        target_reached=reached,
+    )
+
+
+def _inverse_sqrt(matrix: np.ndarray, ridge: float) -> np.ndarray:
+    values, vectors = eigh((matrix + matrix.T) / 2)
+    cutoff = max(
+        ridge,
+        np.finfo(np.float64).eps * max(matrix.shape) * max(float(values.max()), 1.0),
+    )
+    inverse = np.zeros_like(values)
+    valid = values > cutoff
+    inverse[valid] = 1.0 / np.sqrt(values[valid] + ridge)
+    return (vectors * inverse) @ vectors.T
+
+
+def _cca(
+    left: np.ndarray, right: np.ndarray, ridge: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Stable ridge CCA for centered ``[samples, components]`` scores."""
+    if left.shape[0] != right.shape[0]:
+        raise ValueError("CCA inputs must share sample rows")
+    left = left - left.mean(axis=0, keepdims=True)
+    right = right - right.mean(axis=0, keepdims=True)
+    scale = max(left.shape[0] - 1, 1)
+    covariance_left = left.T @ left / scale
+    covariance_right = right.T @ right / scale
+    cross = left.T @ right / scale
+    whiten_left = _inverse_sqrt(covariance_left, ridge)
+    whiten_right = _inverse_sqrt(covariance_right, ridge)
+    u, correlations, vt = np.linalg.svd(
+        whiten_left @ cross @ whiten_right, full_matrices=False
+    )
+    correlations = np.clip(correlations, 0.0, 1.0)
+    coefficient_left = whiten_left @ u
+    coefficient_right = whiten_right @ vt.T
+    return correlations, coefficient_left, coefficient_right, left, right
+
+
+@dataclass
+class SVCCAResult:
+    correlations: np.ndarray
+    mean_correlation: float
+    median_correlation: float
+    components_a: int
+    components_b: int
+    explained_variance_a: float
+    explained_variance_b: float
+    target_reached_a: bool
+    target_reached_b: bool
+    pca_curve_a: np.ndarray
+    pca_curve_b: np.ndarray
+
+    def to_dict(self, include_arrays: bool = False) -> dict[str, Any]:
+        result = asdict(self)
+        if not include_arrays:
+            for key in ("correlations", "pca_curve_a", "pca_curve_b"):
+                result.pop(key)
+        return result
+
+
+def svcca(
+    left: Array,
+    right: Array,
+    *,
+    explained_variance: float = 0.99,
+    max_components: int = 1024,
+    ridge: float = 1e-6,
+    random_seed: int = 0,
+) -> SVCCAResult:
+    """SVCCA on dominant PCA subspaces of shared ``[samples, latents]`` rows."""
+    return svcca_pwcca(
+        left,
+        right,
+        explained_variance=explained_variance,
+        max_components=max_components,
+        ridge=ridge,
+        random_seed=random_seed,
+    )[0]
+
+
+@dataclass
+class PWCCAResult:
+    correlations: np.ndarray
+    projection_weights: np.ndarray
+    similarity: float
+    weighting_side: str
+    canonical_variates: np.ndarray
+    components_a: int
+    components_b: int
+    explained_variance_a: float
+    explained_variance_b: float
+
+    def to_dict(self, include_arrays: bool = False) -> dict[str, Any]:
+        result = asdict(self)
+        if not include_arrays:
+            for key in ("correlations", "projection_weights", "canonical_variates"):
+                result.pop(key)
+        return result
+
+
+def pwcca(
+    left: Array,
+    right: Array,
+    *,
+    explained_variance: float = 0.99,
+    max_components: int = 1024,
+    ridge: float = 1e-6,
+    random_seed: int = 0,
+) -> PWCCAResult:
+    """Projection-weighted CCA using the standard Morcos et al. weighting.
+
+    After PCA and CCA, canonical variates on the lower-rank side are
+    orthonormalized. Each canonical component receives the sum of absolute
+    projections of that side's original reduced neuron activations onto the
+    canonical basis. Normalized weights are dotted with canonical correlations.
+    This is the PWCCA algorithm from Morcos et al., *Insights on representational
+    similarity in neural networks with canonical correlation* (NeurIPS 2018),
+    not PCA-explained-variance weighting.
+    """
+    return svcca_pwcca(
+        left,
+        right,
+        explained_variance=explained_variance,
+        max_components=max_components,
+        ridge=ridge,
+        random_seed=random_seed,
+    )[1]
+
+
+def svcca_pwcca(
+    left: Array,
+    right: Array,
+    *,
+    explained_variance: float = 0.99,
+    max_components: int = 1024,
+    ridge: float = 1e-6,
+    random_seed: int = 0,
+) -> tuple[SVCCAResult, PWCCAResult]:
+    """Compute SVCCA and standard PWCCA while sharing PCA and CCA work."""
+    if left.shape[0] != right.shape[0]:
+        raise ValueError("SVCCA/PWCCA inputs must share sample rows")
+    pca_left = _pca_reduce(left, explained_variance, max_components, random_seed)
+    pca_right = _pca_reduce(right, explained_variance, max_components, random_seed + 1)
+    correlations, coef_left, coef_right, centered_left, centered_right = _cca(
+        pca_left.scores, pca_right.scores, ridge
+    )
+    svcca_result = SVCCAResult(
+        correlations=correlations,
+        mean_correlation=float(correlations.mean()),
+        median_correlation=float(np.median(correlations)),
+        components_a=pca_left.retained_components,
+        components_b=pca_right.retained_components,
+        explained_variance_a=pca_left.explained_variance_retained,
+        explained_variance_b=pca_right.explained_variance_retained,
+        target_reached_a=pca_left.target_reached,
+        target_reached_b=pca_right.target_reached,
+        pca_curve_a=np.cumsum(pca_left.explained_variance_ratio),
+        pca_curve_b=np.cumsum(pca_right.explained_variance_ratio),
+    )
+    if pca_left.retained_components <= pca_right.retained_components:
+        canonical = centered_left @ coef_left
+        source = centered_left
+        side = "a"
+    else:
+        canonical = centered_right @ coef_right
+        source = centered_right
+        side = "b"
+    canonical = canonical[:, : len(correlations)]
+    q, _ = np.linalg.qr(canonical, mode="reduced")
+    weights = np.abs(q.T @ source).sum(axis=1)
+    if weights.sum() <= np.finfo(np.float64).eps:
+        raise ValueError("PWCCA projection weights are all zero")
+    weights = weights / weights.sum()
+    similarity = float(weights @ correlations[: len(weights)])
+    pwcca_result = PWCCAResult(
+        correlations=correlations,
+        projection_weights=weights,
+        similarity=similarity,
+        weighting_side=side,
+        canonical_variates=canonical,
+        components_a=pca_left.retained_components,
+        components_b=pca_right.retained_components,
+        explained_variance_a=pca_left.explained_variance_retained,
+        explained_variance_b=pca_right.explained_variance_retained,
+    )
+    return svcca_result, pwcca_result
+
+
+def log_probabilities(logits: np.ndarray) -> np.ndarray:
+    logits = np.asarray(logits, dtype=np.float64)
+    return logits - logsumexp(logits, axis=-1, keepdims=True)
+
+
+def js_divergence_from_logits(logits_a: np.ndarray, logits_b: np.ndarray) -> float:
+    """Base-2 Jensen-Shannon divergence in the guaranteed range ``[0, 1]``."""
+    log_a = log_probabilities(logits_a)
+    log_b = log_probabilities(logits_b)
+    log_midpoint = np.logaddexp(log_a, log_b) - np.log(2.0)
+    probability_a = np.exp(log_a)
+    probability_b = np.exp(log_b)
+    kl_a = np.sum(probability_a * (log_a - log_midpoint), axis=-1)
+    kl_b = np.sum(probability_b * (log_b - log_midpoint), axis=-1)
+    return float(np.mean((kl_a + kl_b) / (2.0 * np.log(2.0))))
+
+
+def _cosine(left: np.ndarray, right: np.ndarray) -> float:
+    denominator = np.linalg.norm(left) * np.linalg.norm(right)
+    return float(left @ right / denominator) if denominator > 0 else np.nan
+
+
+def ablation_metrics(
+    baseline_logits_a: np.ndarray,
+    ablated_logits_a: np.ndarray,
+    baseline_logits_b: np.ndarray,
+    ablated_logits_b: np.ndarray,
+    *,
+    top_k: int = 10,
+    minimum_effect_norm: float = 1e-8,
+) -> dict[str, Any]:
+    """Compare one prompt's ablations against each SAE's own baseline logits."""
+    arrays = [
+        np.asarray(item, dtype=np.float64).ravel()
+        for item in (
+            baseline_logits_a,
+            ablated_logits_a,
+            baseline_logits_b,
+            ablated_logits_b,
+        )
+    ]
+    if len({len(item) for item in arrays}) != 1:
+        raise ValueError("All logit vectors must have the same vocabulary width")
+    base_a, ablated_a, base_b, ablated_b = arrays
+    delta_a = ablated_a - base_a
+    delta_b = ablated_b - base_b
+    norm_a, norm_b = float(np.linalg.norm(delta_a)), float(np.linalg.norm(delta_b))
+    zero_a, zero_b = norm_a <= minimum_effect_norm, norm_b <= minimum_effect_norm
+    logit_pearson, _ = _safe_correlation(delta_a, delta_b, "pearson")
+    logit_spearman, _ = _safe_correlation(delta_a, delta_b, "spearman")
+    probability_a, probability_ablated_a = (
+        np.exp(log_probabilities(base_a)),
+        np.exp(log_probabilities(ablated_a)),
+    )
+    probability_b, probability_ablated_b = (
+        np.exp(log_probabilities(base_b)),
+        np.exp(log_probabilities(ablated_b)),
+    )
+    probability_delta_a = probability_ablated_a - probability_a
+    probability_delta_b = probability_ablated_b - probability_b
+    probability_pearson, _ = _safe_correlation(
+        probability_delta_a, probability_delta_b, "pearson"
+    )
+    k = min(top_k, len(base_a))
+    top_a = set(np.argpartition(ablated_a, -k)[-k:].tolist())
+    top_b = set(np.argpartition(ablated_b, -k)[-k:].tolist())
+    scale = float(max(norm_a, norm_b, float(np.finfo(np.float64).eps)))
+    status = (
+        "inconclusive_zero_effect"
+        if zero_a and zero_b
+        else ("one_sided_negligible_effect" if zero_a or zero_b else "informative")
+    )
+    ablation_jsd = js_divergence_from_logits(ablated_a, ablated_b)
+    baseline_jsd = js_divergence_from_logits(base_a, base_b)
+    return {
+        "effect_jsd_a": js_divergence_from_logits(base_a, ablated_a),
+        "effect_jsd_b": js_divergence_from_logits(base_b, ablated_b),
+        "ablation_jsd_between_seeds": ablation_jsd,
+        "baseline_jsd_between_seeds": baseline_jsd,
+        "baseline_adjusted_ablation_jsd": ablation_jsd - baseline_jsd,
+        "logit_delta_cosine": _cosine(delta_a, delta_b),
+        "logit_delta_pearson": logit_pearson,
+        "logit_delta_spearman": logit_spearman,
+        "normalized_logit_delta_l2": float(np.linalg.norm(delta_a - delta_b) / scale),
+        "effect_norm_a": norm_a,
+        "effect_norm_b": norm_b,
+        "effect_norm_ratio": float(norm_a / norm_b) if norm_b > 0 else np.nan,
+        "top1_disagreement": int(np.argmax(ablated_a) != np.argmax(ablated_b)),
+        "topk_overlap": len(top_a & top_b) / k,
+        "prediction_changed_a": int(np.argmax(base_a) != np.argmax(ablated_a)),
+        "prediction_changed_b": int(np.argmax(base_b) != np.argmax(ablated_b)),
+        "probability_delta_cosine": _cosine(probability_delta_a, probability_delta_b),
+        "probability_delta_pearson": probability_pearson,
+        "effect_status": status,
+    }

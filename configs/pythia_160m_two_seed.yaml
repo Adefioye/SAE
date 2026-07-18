@@ -1,0 +1,87 @@
+base_model:
+  repo_id: EleutherAI/pythia-160m
+  revision: null
+  hook_point: blocks.6.hook_mlp_out
+  device: auto
+  dtype: float32
+  model_from_pretrained_kwargs:
+    center_writing_weights: false
+
+saes:
+  - name: seed_0
+    format: sae_lens
+    repo_id: kokolamba/pythia-160m-seeds
+    revision: main
+    checkpoint: pythia-160m-500m-two-seed/trained_saes/seed_0
+  - name: seed_1
+    format: sae_lens
+    repo_id: kokolamba/pythia-160m-seeds
+    revision: main
+    checkpoint: pythia-160m-500m-two-seed/trained_saes/seed_1
+
+dataset:
+  repo_id: apollo-research/monology-pile-uncopyrighted-tokenizer-EleutherAI-gpt-neox-20b
+  revision: null
+  split: train
+  text_column: text
+  token_column: input_ids
+  sequence_length: 128
+  max_sequences: 5000
+  random_seed: 42
+  streaming: true
+
+activations:
+  batch_size: 16
+  encoder_batch_tokens: 512
+  active_threshold: 0.0
+  threshold_mode: fixed
+  threshold_quantile: 0.99
+  save_format: sparse_npz
+  store_dense: false
+
+matching:
+  method: decoder_cosine
+  decoder_weight: 1.0
+  encoder_weight: 0.0
+  activation_correlation_weight: 0.0
+  minimum_similarity: 0.0
+  solver: auto
+  exact_max_features: 8192
+  candidate_top_k: 256
+  similarity_batch_size: 1024
+
+cka:
+  max_samples: 50000
+  center: true
+  standardize_features: false
+
+svcca:
+  explained_variance: 0.99
+  max_components: 1024
+  max_samples: 50000
+  ridge: 1.0e-6
+
+ablation:
+  enabled: true
+  max_feature_pairs: 500
+  examples_per_pair: 50
+  minimum_activation: 0.0
+  selection_mode: both_active
+  intervention: zero
+  intervention_scope: selected_token
+  evaluation_horizon: 1
+  top_k: 10
+  include_clean_logits: true
+  minimum_effect_norm: 1.0e-8
+
+controls:
+  enabled: true
+  random_pairs_per_match: 1
+  frequency_bins: 20
+
+bootstrap:
+  samples: 1000
+  confidence_level: 0.95
+
+output_dir: ../results/sae_seed_similarity
+force: false
