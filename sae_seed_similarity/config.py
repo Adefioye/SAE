@@ -69,6 +69,15 @@ class MatchingConfig:
 
 
 @dataclass
+class PaperMatchingConfig:
+    """Two-assignment shared/orphan protocol from Paulo & Belrose (2025)."""
+
+    enabled: bool = True
+    shared_threshold: float = 0.7
+    threshold_sweep_points: int = 101
+
+
+@dataclass
 class CKAConfig:
     max_samples: int = 50000
     center: bool = True
@@ -103,6 +112,7 @@ class EvaluationConfig:
     dataset: DatasetConfig
     activations: ActivationConfig = field(default_factory=ActivationConfig)
     matching: MatchingConfig = field(default_factory=MatchingConfig)
+    paper_matching: PaperMatchingConfig = field(default_factory=PaperMatchingConfig)
     cka: CKAConfig = field(default_factory=CKAConfig)
     svcca: SVCCAConfig = field(default_factory=SVCCAConfig)
     controls: ControlsConfig = field(default_factory=ControlsConfig)
@@ -139,6 +149,10 @@ class EvaluationConfig:
             or self.matching.similarity_batch_size < 1
         ):
             raise ValueError("matching feature and batch limits must be positive")
+        if not -1 <= self.paper_matching.shared_threshold <= 1:
+            raise ValueError("paper_matching.shared_threshold must be in [-1, 1]")
+        if self.paper_matching.threshold_sweep_points < 2:
+            raise ValueError("paper_matching.threshold_sweep_points must be >= 2")
         weights = (
             self.matching.decoder_weight,
             self.matching.encoder_weight,
@@ -200,6 +214,7 @@ def load_config(path: str | Path) -> EvaluationConfig:
         dataset=_construct(DatasetConfig, raw.get("dataset")),
         activations=_construct(ActivationConfig, raw.get("activations")),
         matching=_construct(MatchingConfig, raw.get("matching")),
+        paper_matching=_construct(PaperMatchingConfig, raw.get("paper_matching")),
         cka=_construct(CKAConfig, raw.get("cka")),
         svcca=_construct(SVCCAConfig, raw.get("svcca")),
         controls=_construct(ControlsConfig, raw.get("controls")),

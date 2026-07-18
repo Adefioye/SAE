@@ -14,6 +14,9 @@ def test_production_config_loads() -> None:
     assert [item.name for item in config.saes] == ["seed_0", "seed_1"]
     assert config.base_model.hook_point == "blocks.6.hook_mlp_out"
     assert config.saes[0].format == "sae_lens"
+    assert config.matching.solver == "exact"
+    assert config.paper_matching.enabled
+    assert config.paper_matching.shared_threshold == 0.7
 
 
 def test_sparse_activation_round_trip(tmp_path: Path) -> None:

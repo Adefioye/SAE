@@ -12,7 +12,18 @@ import numpy as np
 import pandas as pd
 
 from .config import EvaluationConfig, load_config
-from .plotting import distribution, heatmap, save_figure, scatter
+from .plotting import (
+    distribution,
+    heatmap,
+    paper_encoder_decoder_joint,
+    paper_hungarian_vs_max_cosine,
+    paper_shared_orphan_distribution,
+    paper_shared_orphan_fractions,
+    paper_similarity_vs_frequency,
+    paper_threshold_sweep,
+    save_figure,
+    scatter,
+)
 from .statistics import bootstrap_ci, matched_control_statistics
 from .storage import ArtifactStore
 from .utils import configure_logging
@@ -120,7 +131,7 @@ def _statistical_summary(
     return result
 
 
-def _make_plots(store: ArtifactStore) -> None:
+def _make_plots(config: EvaluationConfig, store: ArtifactStore) -> None:
     plot_dir = store.root / "plots"
     for filename, title, output_name in (
         ("cka_matrix.csv", "Linear CKA across SAE seeds", "cka_heatmap"),
@@ -162,6 +173,73 @@ def _make_plots(store: ArtifactStore) -> None:
             plot_dir,
             "matched_vs_random_distributions",
         )
+
+    paper_matches = _read_if(store.root / "paper_hungarian_matches.parquet", True)
+    paper_summary = _read_if(store.root / "paper_seed_pair_summary.csv")
+    threshold_sweep = _read_if(store.root / "paper_threshold_sweep.csv")
+    if len(paper_matches):
+        pair_count = paper_matches.groupby(["sae_a", "sae_b"]).ngroups
+        for (sae_a, sae_b), frame in paper_matches.groupby(
+            ["sae_a", "sae_b"], sort=False
+        ):
+            suffix = "" if pair_count == 1 else f"_{sae_a}__{sae_b}"
+            save_figure(
+                paper_encoder_decoder_joint(
+                    frame, threshold=config.paper_matching.shared_threshold
+                ),
+                plot_dir,
+                f"paper_figure_1_encoder_decoder_alignment{suffix}",
+            )
+            save_figure(
+                paper_hungarian_vs_max_cosine(frame, direction="decoder"),
+                plot_dir,
+                f"paper_figure_a2_decoder_hungarian_vs_max_cosine{suffix}",
+            )
+            save_figure(
+                paper_hungarian_vs_max_cosine(frame, direction="encoder"),
+                plot_dir,
+                f"paper_encoder_hungarian_vs_max_cosine{suffix}",
+            )
+            save_figure(
+                paper_shared_orphan_distribution(frame),
+                plot_dir,
+                f"paper_shared_orphan_cosine_distributions{suffix}",
+            )
+            if len(overlap):
+                frequencies = overlap[
+                    (overlap["sae_a"] == sae_a) & (overlap["sae_b"] == sae_b)
+                ][["feature_a", "activation_frequency_a"]]
+                frequency_frame = frame.merge(
+                    frequencies.drop_duplicates("feature_a"),
+                    on="feature_a",
+                    how="inner",
+                )
+                if len(frequency_frame):
+                    save_figure(
+                        paper_similarity_vs_frequency(frequency_frame),
+                        plot_dir,
+                        f"paper_similarity_vs_firing_frequency{suffix}",
+                    )
+    if len(threshold_sweep):
+        pair_count = threshold_sweep.groupby(["sae_a", "sae_b"]).ngroups
+        for (sae_a, sae_b), frame in threshold_sweep.groupby(
+            ["sae_a", "sae_b"], sort=False
+        ):
+            suffix = "" if pair_count == 1 else f"_{sae_a}__{sae_b}"
+            save_figure(
+                paper_threshold_sweep(
+                    frame,
+                    selected_threshold=config.paper_matching.shared_threshold,
+                ),
+                plot_dir,
+                f"paper_figure_a1_threshold_sweep{suffix}",
+            )
+    if len(paper_summary):
+        save_figure(
+            paper_shared_orphan_fractions(paper_summary),
+            plot_dir,
+            "paper_shared_orphan_fractions",
+        )
     spectra_files = sorted((store.root / "svcca_correlations").glob("*.npz"))
     if spectra_files:
         figure, axis = plt.subplots(figsize=(8, 5))
@@ -198,8 +276,9 @@ def run(config: EvaluationConfig) -> Path:
     store = ArtifactStore(config.output_path).ensure()
     controls = _control_summary(config, store)
     statistics = _statistical_summary(config, store)
-    _make_plots(store)
+    _make_plots(config, store)
     summary = _read_if(store.root / "seed_pair_summary.csv")
+    paper_summary = _read_if(store.root / "paper_seed_pair_summary.csv")
     report_path = store.root / "report.md"
     lines = [
         "# SAE seed similarity report",
@@ -211,6 +290,12 @@ def run(config: EvaluationConfig) -> Path:
         summary.to_markdown(index=False)
         if len(summary)
         else "Representation stage not run.",
+        "",
+        "## Paper shared/orphan summary",
+        "",
+        paper_summary.to_markdown(index=False)
+        if len(paper_summary)
+        else "Paper matching stage not run.",
         "",
         "## Controls",
         "",

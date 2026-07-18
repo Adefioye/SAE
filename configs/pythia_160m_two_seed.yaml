@@ -45,10 +45,17 @@ matching:
   encoder_weight: 0.0
   activation_correlation_weight: 0.0
   minimum_similarity: 0.0
-  solver: auto
+  # The paper used full, separate encoder and decoder Hungarian assignments.
+  # A 32,768 x 32,768 float32 score matrix is 4 GiB before solver overhead.
+  solver: exact
   exact_max_features: 8192
   candidate_top_k: 256
   similarity_batch_size: 1024
+
+paper_matching:
+  enabled: true
+  shared_threshold: 0.7
+  threshold_sweep_points: 101
 
 cka:
   max_samples: 50000

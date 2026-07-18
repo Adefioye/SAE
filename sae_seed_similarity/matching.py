@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -162,7 +162,7 @@ def _score_block(
                 "Encoder matching requested but an SAE has no encoder directions"
             )
         score = score + encoder_weight * (encoder_a[start:end] @ encoder_b.T)
-    return score
+    return torch.nan_to_num(score, nan=0.0)
 
 
 @dataclass
@@ -173,7 +173,31 @@ class MatchResult:
     decoder_cosine: np.ndarray
     encoder_cosine: np.ndarray
     activation_correlation: np.ndarray
+    maximum_feature_b: np.ndarray
+    maximum_score: np.ndarray
     solver: str
+
+
+@dataclass
+class PaperMatchResult:
+    """Separate encoder/decoder assignments and the paper's shared label."""
+
+    feature_a: np.ndarray
+    encoder_feature_b: np.ndarray
+    decoder_feature_b: np.ndarray
+    encoder_cosine: np.ndarray
+    decoder_cosine: np.ndarray
+    encoder_max_feature_b: np.ndarray
+    decoder_max_feature_b: np.ndarray
+    encoder_max_cosine: np.ndarray
+    decoder_max_cosine: np.ndarray
+    same_counterpart: np.ndarray
+    is_shared: np.ndarray
+    is_orphan: np.ndarray
+    average_matched_cosine: np.ndarray
+    shared_threshold: float
+    encoder_match: MatchResult
+    decoder_match: MatchResult
 
 
 def match_adapters(
@@ -229,6 +253,8 @@ def match_adapters(
             )
         if weights[2]:
             score += weights[2] * _activation_correlation_matrix(latents_a, latents_b)
+        maximum_feature_b = np.argmax(score, axis=1).astype(np.int64)
+        maximum_score = score[np.arange(n_a), maximum_feature_b]
         feature_a, feature_b = linear_sum_assignment(score, maximize=True)
         matching_score = score[feature_a, feature_b]
     else:
@@ -242,6 +268,8 @@ def match_adapters(
             row_decoder, col_decoder = decoder_a, decoder_b
             row_encoder, col_encoder = encoder_a, encoder_b
         n_rows, n_columns = row_decoder.shape[0], col_decoder.shape[0]
+        maximum_score = np.full(n_a, -np.inf, dtype=np.float32)
+        maximum_feature_b = np.full(n_a, -1, dtype=np.int64)
         k = min(config.candidate_top_k, n_columns)
         row_parts: list[np.ndarray] = []
         column_parts: list[np.ndarray] = []
@@ -253,6 +281,16 @@ def match_adapters(
             block = _score_block(
                 row_decoder, col_decoder, row_encoder, col_encoder, start, end, weights
             )
+            if swapped:
+                block_maximum, local_rows = block.max(dim=0)
+                block_maximum_array = block_maximum.cpu().numpy()
+                improved = block_maximum_array > maximum_score
+                maximum_score[improved] = block_maximum_array[improved]
+                maximum_feature_b[improved] = start + local_rows.cpu().numpy()[improved]
+            else:
+                block_maximum, block_columns = block.max(dim=1)
+                maximum_score[start:end] = block_maximum.cpu().numpy()
+                maximum_feature_b[start:end] = block_columns.cpu().numpy()
             values, columns = torch.topk(block, k=k, dim=1)
             rows = np.repeat(np.arange(start, end, dtype=np.int64), k)
             candidate_columns = columns.cpu().numpy().ravel().astype(np.int64)
@@ -292,6 +330,10 @@ def match_adapters(
             graph_scores += weights[2] * _activation_correlations(
                 latents_a, latents_b, corr_a, corr_b
             )
+            # The sparse candidate graph does not contain activation correlations
+            # for every A/B pair, so a true all-pairs maximum is unavailable.
+            maximum_score.fill(np.nan)
+            maximum_feature_b.fill(-1)
         maximum = float(graph_scores.max())
         costs = maximum - graph_scores.astype(np.float64) + 1e-8
         graph = sparse.coo_matrix(
@@ -343,5 +385,142 @@ def match_adapters(
         decoder_cosine=decoder_cosine,
         encoder_cosine=encoder_cosine,
         activation_correlation=activation_correlation,
+        maximum_feature_b=np.asarray(maximum_feature_b, dtype=np.int64),
+        maximum_score=np.asarray(maximum_score, dtype=np.float32),
         solver=solver,
+    )
+
+
+def maximum_cosine_matches(
+    directions_a: Any,
+    directions_b: Any,
+    *,
+    batch_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return each A direction's non-bijective nearest B direction and cosine."""
+    left = _normalized(directions_a)
+    right = _normalized(directions_b)
+    feature_b = np.empty(left.shape[0], dtype=np.int64)
+    cosine = np.empty(left.shape[0], dtype=np.float32)
+    with torch.no_grad():
+        for start in tqdm(
+            range(0, left.shape[0], batch_size), desc="maximum-cosine blocks"
+        ):
+            end = min(start + batch_size, left.shape[0])
+            score = torch.nan_to_num(left[start:end] @ right.T, nan=0.0)
+            values, indices = score.max(dim=1)
+            feature_b[start:end] = indices.cpu().numpy()
+            cosine[start:end] = values.cpu().numpy()
+    return feature_b, cosine
+
+
+def classify_shared_latents(
+    encoder_feature_b: np.ndarray,
+    decoder_feature_b: np.ndarray,
+    encoder_cosine: np.ndarray,
+    decoder_cosine: np.ndarray,
+    *,
+    threshold: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return assignment agreement and the paper's inclusive shared mask."""
+    same_counterpart = np.asarray(encoder_feature_b) == np.asarray(decoder_feature_b)
+    is_shared = (
+        same_counterpart
+        & (np.asarray(encoder_cosine) >= threshold)
+        & (np.asarray(decoder_cosine) >= threshold)
+    )
+    return same_counterpart, is_shared
+
+
+def _ordered_full_match(
+    result: MatchResult, expected_features: int, label: str
+) -> MatchResult:
+    """Put a full equal-width assignment in SAE-A feature order."""
+    order = np.argsort(result.feature_a)
+    feature_a = result.feature_a[order]
+    expected = np.arange(expected_features, dtype=np.int64)
+    if not np.array_equal(feature_a, expected):
+        raise ValueError(
+            f"Paper matching requires a full {label} assignment for every SAE-A latent"
+        )
+    return MatchResult(
+        feature_a=feature_a,
+        feature_b=result.feature_b[order],
+        matching_score=result.matching_score[order],
+        decoder_cosine=result.decoder_cosine[order],
+        encoder_cosine=result.encoder_cosine[order],
+        activation_correlation=result.activation_correlation[order],
+        maximum_feature_b=result.maximum_feature_b,
+        maximum_score=result.maximum_score,
+        solver=result.solver,
+    )
+
+
+def match_paper_shared_latents(
+    sae_a: SAEAdapter,
+    sae_b: SAEAdapter,
+    config: MatchingConfig,
+    *,
+    shared_threshold: float = 0.7,
+    latents_a: Any | None = None,
+    latents_b: Any | None = None,
+) -> PaperMatchResult:
+    """Apply the paper's two-Hungarian shared/orphan definition.
+
+    Encoder and decoder directions are assigned independently. A latent is shared
+    iff both assignments choose the same SAE-B counterpart and both independently
+    matched cosine similarities are at least ``shared_threshold``. The complement
+    is classified as orphan.
+    """
+    if sae_a.d_sae != sae_b.d_sae:
+        raise ValueError(
+            "Paper shared/orphan matching requires equal-width SAE dictionaries; "
+            f"got {sae_a.d_sae} and {sae_b.d_sae}"
+        )
+    if sae_a.encoder is None or sae_b.encoder is None:
+        raise ValueError("Paper shared/orphan matching requires encoder directions")
+
+    decoder_match = _ordered_full_match(
+        match_adapters(
+            sae_a,
+            sae_b,
+            replace(config, method="decoder_cosine"),
+            latents_a=latents_a,
+            latents_b=latents_b,
+        ),
+        sae_a.d_sae,
+        "decoder",
+    )
+    encoder_match = _ordered_full_match(
+        match_adapters(sae_a, sae_b, replace(config, method="encoder_cosine")),
+        sae_a.d_sae,
+        "encoder",
+    )
+    same_counterpart, is_shared = classify_shared_latents(
+        encoder_match.feature_b,
+        decoder_match.feature_b,
+        encoder_match.matching_score,
+        decoder_match.matching_score,
+        threshold=shared_threshold,
+    )
+    return PaperMatchResult(
+        feature_a=decoder_match.feature_a,
+        encoder_feature_b=encoder_match.feature_b,
+        decoder_feature_b=decoder_match.feature_b,
+        encoder_cosine=encoder_match.matching_score,
+        decoder_cosine=decoder_match.matching_score,
+        encoder_max_feature_b=encoder_match.maximum_feature_b,
+        decoder_max_feature_b=decoder_match.maximum_feature_b,
+        encoder_max_cosine=encoder_match.maximum_score,
+        decoder_max_cosine=decoder_match.maximum_score,
+        same_counterpart=same_counterpart,
+        is_shared=is_shared,
+        is_orphan=~is_shared,
+        average_matched_cosine=(
+            encoder_match.matching_score + decoder_match.matching_score
+        )
+        / 2.0,
+        shared_threshold=float(shared_threshold),
+        encoder_match=encoder_match,
+        decoder_match=decoder_match,
     )

@@ -31,8 +31,9 @@ pytest
 ```
 
 The tests cover identical representations, permuted axes, orthogonal rotations,
-shared low-rank signal, disjoint activation support, configuration validation,
-and sparse-cache round trips.
+shared low-rank signal, disjoint activation support, paper-style encoder/decoder
+assignment agreement, inclusive shared thresholds, configuration validation,
+plot generation, and sparse-cache round trips.
 
 ### Run the experiment
 
@@ -73,9 +74,10 @@ and encoder dictionaries have shape `[d_sae, d_model]`.
 
 - Hungarian matching maximizes one-to-one decoder cosine similarity by default;
   it does not assume feature IDs align. Encoder cosine, activation correlation,
-  or a weighted combination can be configured. Exact assignment is used for
-  smaller dictionaries. The 32k default uses top-k candidate edges followed by
-  a global sparse linear assignment, avoiding a 4 GiB similarity matrix.
+  or a weighted combination can be configured. The production two-seed config
+  uses exact assignment to reproduce the paper protocol. `solver: auto` remains
+  available and uses top-k candidate edges plus a global sparse assignment for
+  wide dictionaries.
 - Activation overlap measures whether a matched pair fires on the same tokens
   and sequences. It reports Jaccard, overlap coefficients, both conditional
   probabilities, magnitude correlations, weighted Jaccard, frequencies, and
@@ -92,6 +94,38 @@ and encoder dictionaries have shape `[d_sae, d_model]`.
 Correlation and geometric similarity do not prove that a representation is
 causally used. The pipeline's conclusions are therefore limited to feature,
 activation, and representation similarity.
+
+### Paper shared/orphan protocol
+
+When `paper_matching.enabled` is true, the matching stage runs two independent
+Hungarian assignments for every equal-width SAE pair: one on normalized encoder
+directions and one on normalized decoder directions. For a latent `i` in SAE A,
+let the two assignments choose `encoder_feature_b[i]` and
+`decoder_feature_b[i]`. The latent is **shared** exactly when the two counterpart
+indices agree and both independently matched cosine similarities are greater
+than or equal to `paper_matching.shared_threshold` (0.7 by default). Every other
+latent is an **orphan**. A weighted encoder/decoder assignment is not equivalent
+to this two-assignment definition.
+
+The report produces the two-seed paper analyses and useful companions:
+
+- Figure 1: encoder matched cosine versus decoder matched cosine, colored by
+  assignment agreement.
+- Figure A1: cosine-only, agreement-plus-threshold, and maximum-cosine overlap
+  fractions across thresholds.
+- Figure A2: Hungarian matched cosine versus non-bijective maximum cosine.
+- Shared/orphan counts, fractions, and matched-cosine distributions.
+- An encoder version of the Hungarian-versus-maximum-cosine plot.
+- A two-seed similarity-versus-firing-frequency plot using cached activations.
+
+The paper collected firing counts over 10 million tokens for its frequency
+figure. At sequence length 128, set `dataset.max_sequences` to approximately
+78,125 to target that scale; the default 5,000-sequence run is a smaller but
+methodologically identical two-seed diagnostic.
+
+The implementation follows the definitions and plotting ideas in the authors'
+[`EleutherAI/sae_overlap`](https://github.com/EleutherAI/sae_overlap) notebook,
+while applying the paper's formal inclusive `>= 0.7` threshold consistently.
 
 ### Controls and statistics
 
@@ -112,6 +146,9 @@ The output directory contains:
 run_manifest.json
 seed_pair_summary.csv
 hungarian_matches.parquet
+paper_hungarian_matches.parquet
+paper_seed_pair_summary.csv
+paper_threshold_sweep.csv
 activation_overlap.parquet
 cka_matrix.csv
 svcca_summary.csv
@@ -132,8 +169,12 @@ selected device. Reduce `activations.encoder_batch_tokens` if dense
 per-batch TopK encoder outputs exhaust device memory. CKA uses sparse covariance
 identities rather than dense centered matrices. SVCCA uses centered sparse
 SVD capped by `max_components`; these are the most expensive representation
-steps. A 32k exact dense assignment is intentionally avoided in `solver: auto`;
-increase `candidate_top_k` to trade memory/runtime for candidate coverage.
+steps. The paper-exact 32k configuration performs encoder and decoder matching
+sequentially. Each 32,768-by-32,768 float32 score matrix is 4 GiB before SciPy
+solver overhead, so substantial host RAM is required. If that is unavailable,
+set `matching.solver: sparse` (or `auto`) and treat the result as an approximate
+paper replication; increase `candidate_top_k` to trade memory/runtime for
+candidate coverage.
 
 ### Interpretation table
 

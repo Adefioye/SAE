@@ -61,6 +61,46 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
         ]
     )
     overlap.to_parquet(store.root / "activation_overlap.parquet", index=False)
+    paper_matches = pd.DataFrame(
+        {
+            "sae_a": ["seed_0"] * 4,
+            "sae_b": ["seed_1"] * 4,
+            "feature_a": [0, 1, 2, 3],
+            "encoder_feature_b": [1, 0, 3, 2],
+            "decoder_feature_b": [1, 0, 2, 3],
+            "encoder_matched_cosine": [0.95, 0.91, 0.55, 0.45],
+            "decoder_matched_cosine": [0.96, 0.88, 0.58, 0.42],
+            "average_matched_cosine": [0.955, 0.895, 0.565, 0.435],
+            "encoder_max_cosine": [0.95, 0.92, 0.61, 0.52],
+            "decoder_max_cosine": [0.96, 0.90, 0.62, 0.49],
+            "same_counterpart": [True, True, False, False],
+            "is_shared": [True, True, False, False],
+            "is_orphan": [False, False, True, True],
+        }
+    )
+    paper_matches.to_parquet(
+        store.root / "paper_hungarian_matches.parquet", index=False
+    )
+    pd.DataFrame(
+        [
+            {
+                "sae_a": "seed_0",
+                "sae_b": "seed_1",
+                "shared_fraction": 0.5,
+                "orphan_fraction": 0.5,
+            }
+        ]
+    ).to_csv(store.root / "paper_seed_pair_summary.csv", index=False)
+    pd.DataFrame(
+        {
+            "sae_a": ["seed_0"] * 3,
+            "sae_b": ["seed_1"] * 3,
+            "threshold": [0.0, 0.7, 1.0],
+            "cosine_threshold_fraction": [1.0, 0.5, 0.0],
+            "shared_fraction": [0.5, 0.5, 0.0],
+            "max_cosine_fraction": [1.0, 0.5, 0.0],
+        }
+    ).to_csv(store.root / "paper_threshold_sweep.csv", index=False)
     random_pairs = pd.DataFrame(
         [
             {
@@ -130,3 +170,11 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
     assert (store.root / "statistical_summary.csv").exists()
     assert (store.root / "plots" / "cka_heatmap.png").exists()
     assert (store.root / "plots" / "canonical_correlation_spectra.svg").exists()
+    assert (
+        store.root / "plots" / "paper_figure_1_encoder_decoder_alignment.png"
+    ).exists()
+    assert (store.root / "plots" / "paper_figure_a1_threshold_sweep.svg").exists()
+    assert (
+        store.root / "plots" / "paper_figure_a2_decoder_hungarian_vs_max_cosine.png"
+    ).exists()
+    assert (store.root / "plots" / "paper_shared_orphan_fractions.svg").exists()
