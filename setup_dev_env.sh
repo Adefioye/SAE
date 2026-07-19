@@ -5,7 +5,7 @@ set -Eeuo pipefail
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ENV_NAME="${SAE_ENV_NAME:-sae}"
 PYTHON_VERSION="${SAE_PYTHON_VERSION:-3.11}"
-REQUIREMENTS_FILE="${1:-${PROJECT_DIR}/requirements.txt}"
+PYPROJECT_FILE="${PROJECT_DIR}/pyproject.toml"
 
 find_conda() {
   if command -v conda >/dev/null 2>&1; then
@@ -38,8 +38,8 @@ if ! CONDA_BIN="$(find_conda)"; then
   exit 1
 fi
 
-if [[ ! -f "${REQUIREMENTS_FILE}" ]]; then
-  echo "Error: requirements file not found: ${REQUIREMENTS_FILE}" >&2
+if [[ ! -f "${PYPROJECT_FILE}" ]]; then
+  echo "Error: project metadata not found: ${PYPROJECT_FILE}" >&2
   exit 1
 fi
 
@@ -72,11 +72,17 @@ else
   conda create --yes --name "${ENV_NAME}" "python=${PYTHON_VERSION}" pip
 fi
 
-echo "Installing SAE project dependencies from ${REQUIREMENTS_FILE}..."
+echo "Installing the CUDA 12.8 PyTorch build..."
 conda run -n "${ENV_NAME}" \
   python -m pip install --upgrade pip setuptools wheel
 conda run -n "${ENV_NAME}" \
-  python -m pip install --requirement "${REQUIREMENTS_FILE}"
+  python -m pip install \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    "torch==2.7.1+cu128"
+
+echo "Installing the SAE project and development dependencies from pyproject.toml..."
+conda run -n "${ENV_NAME}" \
+  python -m pip install --editable "${PROJECT_DIR}[dev]"
 
 echo "Verifying the SAELens runtime and training CLI..."
 VERIFY_CODE='from importlib.metadata import version

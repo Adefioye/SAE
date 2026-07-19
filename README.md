@@ -18,14 +18,14 @@ bash install_miniconda.sh
 bash setup_dev_env.sh
 source /workspace/miniconda3/etc/profile.d/conda.sh
 conda activate sae
-pip install -e '.[dev]'
 pytest
 ```
 
-The setup script is safe to rerun. Set `SAE_ENV_NAME` or
-`SAE_PYTHON_VERSION` before running it to override the default environment name
-or Python 3.11. If Miniconda is installed outside `/workspace`, use the
-activation command printed by `install_miniconda.sh`.
+The setup script installs the CUDA 12.8 PyTorch build and the editable project,
+including its development dependencies, from `pyproject.toml`. It is safe to
+rerun. Set `SAE_ENV_NAME` or `SAE_PYTHON_VERSION` before running it to override
+the default environment name or Python 3.11. If Miniconda is installed outside
+`/workspace`, use the activation command printed by `install_miniconda.sh`.
 
 ## Train the two SAE seeds
 
