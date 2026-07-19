@@ -187,29 +187,85 @@ dominant variance, and then applies ridge-stabilized canonical correlation
 analysis. It tests whether the dominant subspaces are similar. It does not show
 that individual features align or that either representation is causally used.
 
-## Figures and tables
+## Figures and plots
 
-With paper matching enabled, the report produces the two-seed paper analyses
-and useful companion plots:
+The reporting stage saves every figure as both PNG and SVG under
+`<output_dir>/plots/`. The figures cover four distinct questions: whether
+individual dictionary features align, whether aligned features activate alike,
+whether the complete latent spaces preserve token geometry, and whether their
+dominant subspaces agree.
 
-- **Figure 1:** encoder matched cosine versus decoder matched cosine, colored by
-  whether the two assignments agree.
-- **Figure A1:** cosine-only, assignment-agreement-plus-threshold, and
-  maximum-cosine overlap fractions while sweeping the threshold from 0 to 1.
-- **Figure A2:** Hungarian matched cosine versus non-bijective maximum cosine.
-- Shared/orphan counts, fractions, and matched-cosine distributions.
-- The encoder counterpart of the Hungarian-versus-maximum-cosine plot.
-- Similarity versus firing frequency from the cached two-seed activations.
+### Paper-style Hungarian plots
+
+| Plot and output name | Question answered | Main insights |
+| --- | --- | --- |
+| Encoder versus decoder Hungarian alignment (`paper_figure_1_encoder_decoder_alignment`) | Do independent encoder and decoder assignments give strong cosine matches and choose the same counterpart? | Points beyond both threshold lines with assignment agreement are shared latents. High-cosine disagreement means both sides find strong matches but not the same cross-seed feature, consistent with feature splitting, merging, or encoder/decoder inconsistency. Points below either threshold are orphans under the paper definition. |
+| Shared fraction across thresholds (`paper_figure_a1_threshold_sweep`) | How sensitive are shared-latent conclusions to the cosine cutoff? | A rapidly falling shared curve means the reported shared fraction is threshold-sensitive. The gap between “both matched cosines” and “agreement + both cosines” isolates loss caused by encoder/decoder assignment disagreement. The gap from the maximum-cosine curve shows the effect of the one-to-one constraint. |
+| Decoder Hungarian versus maximum cosine (`paper_figure_a2_decoder_hungarian_vs_max_cosine`) | How much decoder similarity is lost by requiring a bijective match? | Points near the diagonal lose little similarity. Points far above it have a much better non-bijective neighbor than their Hungarian counterpart, suggesting competition for the same feature, duplication, or feature splitting. |
+| Encoder Hungarian versus maximum cosine (`paper_encoder_hungarian_vs_max_cosine`) | Does the same one-to-one matching cost occur for encoder directions? | Comparing this plot with its decoder counterpart shows whether assignment competition is stronger on the encoding or decoding side. |
+| Shared/orphan cosine distributions (`paper_shared_orphan_cosine_distributions`) | How do matched encoder and decoder cosines differ between shared and orphan latents? | Strong separation supports the threshold-based classification. Overlapping distributions show that many orphans arise from assignment disagreement rather than simply low cosine similarity. |
+| Shared/orphan fractions (`paper_shared_orphan_fractions`) | What fraction of latents satisfy the complete paper definition? | The shared bar is the direct seed-stability estimate at the configured threshold. With more than two seeds, differences between pair bars reveal variation across seed pairs. |
+| Similarity versus firing frequency (`paper_similarity_vs_firing_frequency`) | Are frequently activated features more stable across seeds? | An upward relationship suggests frequent features are easier to reproduce. Rare shared features show that low frequency does not necessarily imply instability; rare orphan features may instead reflect insufficient observation or genuinely unstable learning. |
 
 The paper collected firing counts over 10 million tokens for its frequency
 figure. With `sequence_length: 128`, set `dataset.max_sequences` to about
 `78125` to target that scale. The default `5000`-sequence configuration is a
 smaller but methodologically equivalent diagnostic.
 
-The definitions and plotting ideas follow the authors'
+### Activation-overlap plots
+
+With paper matching enabled, activation overlap is evaluated for every
+decoder-Hungarian pair, including both paper-defined shared and orphan latents.
+When paper matching is disabled, it uses the general assignment selected by
+`matching.method`. The current figures use token-level Jaccard as their primary
+overlap scalar.
+
+| Plot and output name | Question answered | Main insights |
+| --- | --- | --- |
+| Decoder cosine versus activation Jaccard (`decoder_cosine_vs_activation_jaccard`) | Do geometrically similar decoder directions fire on the same tokens? | Upper-right pairs are stable in direction and activation behavior. Lower-right pairs have similar decoder directions but different firing support, which can arise from encoder, bias, threshold, or magnitude differences. A weak overall relationship means decoder geometry alone is a poor predictor of functional activation agreement. |
+| Matched versus random Jaccard (`matched_vs_random_distributions`) | Do Hungarian pairs overlap more than approximately frequency-matched random cross-seed pairs? | A clear upward shift for matched pairs supports behaviorally meaningful alignment beyond chance. Strong distributional overlap means cosine-based matching adds little activation agreement over the control. |
+
+Other activation metrics—including weighted Jaccard, directional conditional
+probabilities, magnitude correlations, and sequence-level overlap—are retained
+in `activation_overlap.parquet` but do not yet have dedicated report plots.
+Jaccard should therefore not be treated as the only possible definition of
+activation agreement.
+
+### Linear CKA plot
+
+| Plot and output name | Question answered | Main insights |
+| --- | --- | --- |
+| Linear CKA heatmap (`cka_heatmap`) | Do complete SAE latent spaces preserve similar token-to-token geometry? | A high off-diagonal value means the two seeds organize tokens similarly even if individual latent axes do not match. Low feature matching with high CKA is evidence for a stable global representation expressed through different feature coordinates. Low CKA indicates seed dependence at the global-geometry level. |
+
+With exactly two seeds, the heatmap contains only one unique off-diagonal
+comparison; it is valid but mostly a visual presentation of one scalar. The
+current heatmap displays raw centered CKA. Standardized CKA is recorded in
+`seed_pair_summary.csv` but is not plotted separately.
+
+### SVCCA plots
+
+| Plot and output name | Question answered | Main insights |
+| --- | --- | --- |
+| Mean-SVCCA heatmap (`svcca_heatmap`) | How similar are the dominant latent subspaces across seed pairs? | High off-diagonal mean correlation suggests both seeds preserve a similar dominant subspace, potentially using different feature axes. As with CKA, a two-seed heatmap contains one unique comparison. |
+| Canonical-correlation spectrum (`canonical_correlation_spectra`) | How broadly is similarity distributed across canonical components? | Many high correlations indicate a broad shared subspace. A few high values followed by rapid decay indicate a small shared core plus seed-specific dimensions. Uniformly low values indicate little dominant-subspace agreement. |
+| PCA explained-variance curves (`pca_explained_variance_curves`) | How many principal components each SAE needs to capture its activation variance | A steep curve indicates low effective dimensionality or concentrated variance. Similar curves suggest similar variance allocation across seeds; substantially different curves indicate that the seeds distribute activation variance differently and help explain unequal SVCCA component counts. |
+
+### Reading the plots together
+
+| Combined pattern | Supported interpretation |
+| --- | --- |
+| High Hungarian cosine and high activation overlap | Similar individual feature directions also fire similarly on shared data |
+| High Hungarian cosine but low activation overlap | Dictionary geometry is similar, but feature activation behavior differs |
+| Low feature alignment but high CKA | Individual axes differ while global token geometry remains stable |
+| Low feature alignment but high SVCCA | Different dictionaries retain a similar dominant subspace |
+| High SVCCA but lower CKA | A dominant subspace is shared, but its geometry, scaling, or variance allocation differs |
+| Low feature alignment, CKA, and SVCCA | Strong seed dependence at both feature and representation levels |
+
+The definitions and paper-style plotting ideas follow the authors'
 [`EleutherAI/sae_overlap`](https://github.com/EleutherAI/sae_overlap)
 notebooks, while applying the paper's formal inclusive `>= 0.7` threshold
-consistently.
+consistently. All interpretations are correlational or geometric; causal
+equivalence requires interventions on the model.
 
 ## Controls and uncertainty
 

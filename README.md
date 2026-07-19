@@ -102,6 +102,33 @@ python -m sae_seed_similarity.compare_representations --config configs/pythia_16
 python -m sae_seed_similarity.make_report --config configs/pythia_160m_two_seed.yaml
 ```
 
+## Upload seed-similarity metrics
+
+After the complete analysis finishes, set `HF_TOKEN` in the repository-root
+`.env`. Preview the selected artifacts and destination without uploading:
+
+```bash
+python scripts/upload_similarity_metrics_to_hf.py \
+  --config configs/pythia_160m_two_seed.yaml \
+  --dry-run
+```
+
+Upload the artifacts with:
+
+```bash
+python scripts/upload_similarity_metrics_to_hf.py \
+  --config configs/pythia_160m_two_seed.yaml
+```
+
+By default, the script derives the common Hugging Face model repository from
+the configured SAE checkpoints and uploads the CSV, metric Parquet, and SVCCA
+NPZ artifacts in one commit under `similarity_metrics_data/`. It also uploads
+`run_manifest.json` and `report.md`. Raw activation caches, token arrays, row
+metadata, and rendered plots are excluded. Use `--repo-id`, `--revision`,
+`--metrics-dir`, or `--path-in-repo` to override the corresponding defaults.
+The script rejects incomplete metric runs unless `--allow-partial` is passed
+intentionally.
+
 The companion notebooks are:
 
 - [`notebooks/research-1/1.2_SAE_two_seed_run.ipynb`](notebooks/research-1/1.2_SAE_two_seed_run.ipynb)

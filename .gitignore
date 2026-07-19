@@ -5,5 +5,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
-results/
+# Keep generated metric data out of Git, but allow report figures to be tracked.
+/results/*
+!/results/sae_seed_similarity/
+/results/sae_seed_similarity/*
+!/results/sae_seed_similarity/plots/
+!/results/sae_seed_similarity/plots/**
 .mypy_cache/
