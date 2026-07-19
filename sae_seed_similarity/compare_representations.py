@@ -16,6 +16,7 @@ from .metrics import linear_cka, svcca
 from .storage import ArtifactStore
 from .utils import (
     configure_logging,
+    monitored_operation,
     pairwise,
     stable_sample_indices,
     validate_cache_manifest,
@@ -82,9 +83,19 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
             _rows(right, subspace_indices),
         )
         LOGGER.info("CKA %s/%s on %d rows", sae_a.name, sae_b.name, len(cka_indices))
-        cka_raw = linear_cka(cka_left, cka_right, center=config.cka.center)
+        pair_label = f"{sae_a.name}/{sae_b.name}"
+        cka_raw = linear_cka(
+            cka_left,
+            cka_right,
+            center=config.cka.center,
+            progress_label=f"raw CKA {pair_label}",
+        )
         cka_standardized = linear_cka(
-            cka_left, cka_right, center=config.cka.center, standardize_features=True
+            cka_left,
+            cka_right,
+            center=config.cka.center,
+            standardize_features=True,
+            progress_label=f"standardized CKA {pair_label}",
         )
         LOGGER.info("SVCCA %s/%s", sae_a.name, sae_b.name)
         svcca_result = svcca(
@@ -94,6 +105,7 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
             max_components=config.svcca.max_components,
             ridge=config.svcca.ridge,
             random_seed=config.dataset.random_seed + pair_index,
+            progress_label=f"SVCCA {pair_label}",
         )
         common = {"sae_a": sae_a.name, "sae_b": sae_b.name}
         svcca_row = {
@@ -114,19 +126,24 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
             }
         )
         stem = f"{sae_a.name}__{sae_b.name}"
-        np.savez_compressed(
-            store.root / "svcca_correlations" / f"{stem}.npz",
-            correlations=svcca_result.correlations,
-            pca_curve_a=svcca_result.pca_curve_a,
-            pca_curve_b=svcca_result.pca_curve_b,
-        )
+        with monitored_operation(f"save SVCCA arrays {pair_label}"):
+            np.savez_compressed(
+                store.root / "svcca_correlations" / f"{stem}.npz",
+                correlations=svcca_result.correlations,
+                pca_curve_a=svcca_result.pca_curve_a,
+                pca_curve_b=svcca_result.pca_curve_b,
+            )
 
         if config.controls.enabled:
             rng = np.random.default_rng(
                 config.dataset.random_seed + 10_000 + pair_index
             )
             permutation = rng.permutation(len(cka_indices))
-            shuffled_cka = linear_cka(cka_left, cka_right[permutation])
+            shuffled_cka = linear_cka(
+                cka_left,
+                cka_right[permutation],
+                progress_label=f"shuffled-token CKA {pair_label}",
+            )
             shuffled_subspace = subspace_right[rng.permutation(len(subspace_indices))]
             shuffled_svcca = svcca(
                 subspace_left,
@@ -135,6 +152,7 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
                 max_components=config.svcca.max_components,
                 ridge=config.svcca.ridge,
                 random_seed=config.dataset.random_seed + 20_000 + pair_index,
+                progress_label=f"shuffled-token SVCCA {pair_label}",
             )
             control_rows.append(
                 {
@@ -147,14 +165,15 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
 
     summary = pd.DataFrame(pair_rows)
     svcca_frame = pd.DataFrame(svcca_rows)
-    summary.to_csv(summary_path, index=False)
-    svcca_frame.to_csv(store.root / "svcca_summary.csv", index=False)
-    _matrix(names, pair_rows, "cka").to_csv(store.root / "cka_matrix.csv")
-    _matrix(
-        names,
-        [{**row, "value": row["mean_correlation"]} for row in svcca_rows],
-        "value",
-    ).to_csv(store.root / "svcca_matrix.csv")
+    with monitored_operation("save representation summary tables"):
+        summary.to_csv(summary_path, index=False)
+        svcca_frame.to_csv(store.root / "svcca_summary.csv", index=False)
+        _matrix(names, pair_rows, "cka").to_csv(store.root / "cka_matrix.csv")
+        _matrix(
+            names,
+            [{**row, "value": row["mean_correlation"]} for row in svcca_rows],
+            "value",
+        ).to_csv(store.root / "svcca_matrix.csv")
 
     if config.controls.enabled:
         # Identity and column-permutation controls need only one SAE; both global
@@ -176,19 +195,25 @@ def run(config: EvaluationConfig) -> pd.DataFrame:
                 max_components=config.svcca.max_components,
                 ridge=config.svcca.ridge,
                 random_seed=config.dataset.random_seed,
+                progress_label=f"{label} SVCCA {names[0]}",
             )
             control_rows.append(
                 {
                     "sae_a": names[0],
                     "sae_b": names[0],
                     "control": label,
-                    "cka": linear_cka(identity, other),
+                    "cka": linear_cka(
+                        identity,
+                        other,
+                        progress_label=f"{label} CKA {names[0]}",
+                    ),
                     "svcca": sub_result.mean_correlation,
                 }
             )
-        pd.DataFrame(control_rows).to_csv(
-            store.root / "controls_summary.csv", index=False
-        )
+        with monitored_operation("save representation control summary"):
+            pd.DataFrame(control_rows).to_csv(
+                store.root / "controls_summary.csv", index=False
+            )
     return summary
 
 

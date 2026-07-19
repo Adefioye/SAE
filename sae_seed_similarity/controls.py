@@ -13,6 +13,7 @@ from tqdm.auto import tqdm
 from .config import EvaluationConfig
 from .metrics import activation_overlap
 from .storage import ArtifactStore
+from .utils import monitored_operation
 
 LOGGER = logging.getLogger(__name__)
 
@@ -64,7 +65,11 @@ def _random_pairs(
         edges = np.array([edges[0], edges[0] + 1e-12])
     frequency_bins = np.clip(np.digitize(frequencies, edges[1:-1]), 0, len(edges) - 2)
     records: list[dict[str, Any]] = []
-    for row in matches.itertuples(index=False):
+    for row in tqdm(
+        matches.itertuples(index=False),
+        total=len(matches),
+        desc="select frequency-matched controls",
+    ):
         target = stats_b.iloc[int(row.feature_b)]
         target_bin = frequency_bins[int(row.feature_b)]
         candidates = np.flatnonzero(frequency_bins == target_bin)
@@ -121,7 +126,8 @@ def run_feature_controls(
     for pair_index, ((sae_a, sae_b), frame) in enumerate(
         matches.groupby(["sae_a", "sae_b"], sort=False)
     ):
-        stats_b = feature_statistics(latents[sae_b], adapters[sae_b].decoder)
+        with monitored_operation(f"control feature statistics {sae_b}"):
+            stats_b = feature_statistics(latents[sae_b], adapters[sae_b].decoder)
         random_frame = _random_pairs(
             frame,
             stats_b,
@@ -129,11 +135,12 @@ def run_feature_controls(
             config.dataset.random_seed + 30_000 + pair_index,
         )
         random_frames.append(random_frame)
-        shuffled_b = latents[sae_b][
-            np.random.default_rng(
-                config.dataset.random_seed + 40_000 + pair_index
-            ).permutation(latents[sae_b].shape[0])
-        ]
+        with monitored_operation(f"shuffle activation rows {sae_b}"):
+            shuffled_b = latents[sae_b][
+                np.random.default_rng(
+                    config.dataset.random_seed + 40_000 + pair_index
+                ).permutation(latents[sae_b].shape[0])
+            ]
         controls = [
             ("random_pair", random_frame),
             ("shuffled_tokens", frame[["sae_a", "sae_b", "feature_a", "feature_b"]]),
@@ -165,7 +172,11 @@ def run_feature_controls(
             identity_features = (
                 frame["feature_a"].drop_duplicates().to_numpy(dtype=np.int64)
             )
-            for feature in identity_features:
+            for feature in tqdm(
+                identity_features,
+                total=len(identity_features),
+                desc=f"identity control {sae_a}",
+            ):
                 values = activation_overlap(
                     latents[sae_a],
                     latents[sae_a],
@@ -179,6 +190,7 @@ def run_feature_controls(
                 overlap_rows.append(values)
     random_pairs = pd.concat(random_frames, ignore_index=True)
     overlaps = pd.DataFrame(overlap_rows)
-    random_pairs.to_parquet(pairs_path, index=False)
-    overlaps.to_parquet(overlap_path, index=False)
+    with monitored_operation("save activation-overlap control tables"):
+        random_pairs.to_parquet(pairs_path, index=False)
+        overlaps.to_parquet(overlap_path, index=False)
     return random_pairs, overlaps

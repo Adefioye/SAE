@@ -17,7 +17,13 @@ from .controls import run_feature_controls
 from .matching import match_adapters, match_paper_shared_latents
 from .metrics import activation_overlap
 from .storage import ArtifactStore
-from .utils import configure_logging, pairwise, resolve_device, validate_cache_manifest
+from .utils import (
+    configure_logging,
+    monitored_operation,
+    pairwise,
+    resolve_device,
+    validate_cache_manifest,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -66,13 +72,15 @@ def run(config: EvaluationConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     ):
         LOGGER.info("Feature comparison artifacts already exist; reusing cache")
         return pd.read_parquet(matches_path), pd.read_parquet(overlap_path)
-    metadata = pd.read_parquet(store.row_metadata)
+    with monitored_operation("load activation row metadata"):
+        metadata = pd.read_parquet(store.row_metadata)
     sequence_ids = metadata["sequence_id"].to_numpy()
     device = resolve_device(config.base_model.device)
-    adapters = {
-        item.name: load_sae(item, device, config.base_model.dtype)
-        for item in config.saes
-    }
+    with monitored_operation("load SAE checkpoints for feature matching"):
+        adapters = {
+            item.name: load_sae(item, device, config.base_model.dtype)
+            for item in config.saes
+        }
     latents = {item.name: store.load_latents(item.name) for item in config.saes}
     match_frames: list[pd.DataFrame] = []
     paper_frames: list[pd.DataFrame] = []
@@ -218,18 +226,20 @@ def run(config: EvaluationConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
             overlap_rows.append(metrics)
     matches = pd.concat(match_frames, ignore_index=True)
     overlap = pd.DataFrame(overlap_rows)
-    matches.to_parquet(matches_path, index=False)
-    overlap.to_parquet(overlap_path, index=False)
+    with monitored_operation("save matched-feature and activation-overlap tables"):
+        matches.to_parquet(matches_path, index=False)
+        overlap.to_parquet(overlap_path, index=False)
     if config.paper_matching.enabled:
-        pd.concat(paper_frames, ignore_index=True).to_parquet(
-            store.root / "paper_hungarian_matches.parquet", index=False
-        )
-        pd.DataFrame(paper_summary_rows).to_csv(
-            store.root / "paper_seed_pair_summary.csv", index=False
-        )
-        pd.DataFrame(threshold_rows).to_csv(
-            store.root / "paper_threshold_sweep.csv", index=False
-        )
+        with monitored_operation("save paper-style matching tables"):
+            pd.concat(paper_frames, ignore_index=True).to_parquet(
+                store.root / "paper_hungarian_matches.parquet", index=False
+            )
+            pd.DataFrame(paper_summary_rows).to_csv(
+                store.root / "paper_seed_pair_summary.csv", index=False
+            )
+            pd.DataFrame(threshold_rows).to_csv(
+                store.root / "paper_threshold_sweep.csv", index=False
+            )
     if config.controls.enabled:
         run_feature_controls(config, matches, adapters, latents, sequence_ids)
     return matches, overlap

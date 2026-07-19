@@ -10,7 +10,7 @@ from .compare_representations import run as compare_representations
 from .config import load_config
 from .make_report import run as make_report
 from .match_features import run as match_features
-from .utils import configure_logging
+from .utils import configure_logging, monitored_operation
 
 
 def main() -> None:
@@ -20,10 +20,18 @@ def main() -> None:
     args = parser.parse_args()
     configure_logging(args.verbose)
     config = load_config(args.config)
-    collect(config)
-    match_features(config)
-    compare_representations(config)
-    make_report(config)
+    stages = (
+        ("collect activations", collect),
+        ("match features and activation overlap", match_features),
+        ("compare representations", compare_representations),
+        ("create report and plots", make_report),
+    )
+    for index, (name, operation) in enumerate(stages, start=1):
+        with monitored_operation(
+            f"pipeline stage {index}/{len(stages)}: {name}",
+            heartbeat_seconds=60.0,
+        ):
+            operation(config)
 
 
 if __name__ == "__main__":

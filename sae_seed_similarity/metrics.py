@@ -6,9 +6,10 @@ accept SciPy sparse matrices so TopK SAE latents need not be densified.
 
 from __future__ import annotations
 
+import logging
+import warnings
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, TypeAlias
-import warnings
 
 import numpy as np
 from scipy import sparse
@@ -16,7 +17,10 @@ from scipy.linalg import eigh
 from scipy.sparse.linalg import LinearOperator, svds
 from scipy.stats import pearsonr, spearmanr
 
+from .utils import monitored_operation
+
 Array: TypeAlias = np.ndarray | sparse.spmatrix
+LOGGER = logging.getLogger(__name__)
 
 
 def _column(matrix: Array, index: int) -> np.ndarray:
@@ -186,6 +190,7 @@ def linear_cka(
     *,
     center: bool = True,
     standardize_features: bool = False,
+    progress_label: str | None = None,
 ) -> float:
     """Linear CKA for shared rows in ``[samples, features]`` matrices.
 
@@ -216,10 +221,16 @@ def linear_cka(
 
         left = _scale_columns(left, inverse_std(left))
         right = _scale_columns(right, inverse_std(right))
+    label = progress_label or (
+        "standardized linear CKA" if standardize_features else "linear CKA"
+    )
     if not center:
-        cross = left.T @ right
-        auto_left = left.T @ left
-        auto_right = right.T @ right
+        with monitored_operation(f"{label}: cross covariance (1/3)"):
+            cross = left.T @ right
+        with monitored_operation(f"{label}: left auto-covariance (2/3)"):
+            auto_left = left.T @ left
+        with monitored_operation(f"{label}: right auto-covariance (3/3)"):
+            auto_right = right.T @ right
 
         def norm(value: Any) -> float:
             return (
@@ -231,11 +242,13 @@ def linear_cka(
         numerator = norm(cross)
         denominator = np.sqrt(norm(auto_left) * norm(auto_right))
     else:
-        numerator = _centered_cross_frobenius_squared(left, right)
-        denominator = np.sqrt(
-            _centered_cross_frobenius_squared(left, left)
-            * _centered_cross_frobenius_squared(right, right)
-        )
+        with monitored_operation(f"{label}: centered cross covariance (1/3)"):
+            numerator = _centered_cross_frobenius_squared(left, right)
+        with monitored_operation(f"{label}: left auto-covariance (2/3)"):
+            left_auto = _centered_cross_frobenius_squared(left, left)
+        with monitored_operation(f"{label}: right auto-covariance (3/3)"):
+            right_auto = _centered_cross_frobenius_squared(right, right)
+        denominator = np.sqrt(left_auto * right_auto)
     if denominator <= np.finfo(np.float64).eps:
         raise ValueError("CKA is undefined for a zero-variance representation")
     return float(np.clip(numerator / denominator, 0.0, 1.0 + 1e-10))
@@ -394,13 +407,34 @@ def svcca(
     max_components: int = 1024,
     ridge: float = 1e-6,
     random_seed: int = 0,
+    progress_label: str | None = None,
 ) -> SVCCAResult:
     """SVCCA on dominant PCA subspaces of shared ``[samples, latents]`` rows."""
     if left.shape[0] != right.shape[0]:
         raise ValueError("SVCCA inputs must share sample rows")
-    pca_left = _pca_reduce(left, explained_variance, max_components, random_seed)
-    pca_right = _pca_reduce(right, explained_variance, max_components, random_seed + 1)
-    correlations, _, _, _, _ = _cca(pca_left.scores, pca_right.scores, ridge)
+    label = progress_label or "SVCCA"
+    with monitored_operation(f"{label}: left PCA/SVD (1/3)"):
+        pca_left = _pca_reduce(left, explained_variance, max_components, random_seed)
+    LOGGER.info(
+        "%s left PCA retained %d components (%.4f variance; target_reached=%s)",
+        label,
+        pca_left.retained_components,
+        pca_left.explained_variance_retained,
+        pca_left.target_reached,
+    )
+    with monitored_operation(f"{label}: right PCA/SVD (2/3)"):
+        pca_right = _pca_reduce(
+            right, explained_variance, max_components, random_seed + 1
+        )
+    LOGGER.info(
+        "%s right PCA retained %d components (%.4f variance; target_reached=%s)",
+        label,
+        pca_right.retained_components,
+        pca_right.explained_variance_retained,
+        pca_right.target_reached,
+    )
+    with monitored_operation(f"{label}: canonical correlation analysis (3/3)"):
+        correlations, _, _, _, _ = _cca(pca_left.scores, pca_right.scores, ridge)
     return SVCCAResult(
         correlations=correlations,
         mean_correlation=float(correlations.mean()),

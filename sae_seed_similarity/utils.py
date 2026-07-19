@@ -9,6 +9,10 @@ import logging
 import os
 import random
 import subprocess
+import sys
+import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
@@ -24,6 +28,90 @@ def configure_logging(verbose: bool = False) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+
+
+def format_duration(seconds: float) -> str:
+    total = max(int(seconds), 0)
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def format_bytes(size: int) -> str:
+    value = float(max(size, 0))
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            return f"{value:.2f} {unit}"
+        value /= 1024
+    raise AssertionError("unreachable")
+
+
+def _peak_rss_bytes() -> int | None:
+    try:
+        import resource
+
+        peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except (ImportError, OSError, ValueError):
+        return None
+    # macOS reports bytes; Linux and the RunPod environment report KiB.
+    return peak if sys.platform == "darwin" else peak * 1024
+
+
+@contextmanager
+def monitored_operation(
+    label: str,
+    *,
+    heartbeat_seconds: float = 30.0,
+) -> Iterator[None]:
+    """Log start, periodic liveness/resource heartbeats, and elapsed time."""
+    if heartbeat_seconds <= 0:
+        raise ValueError("heartbeat_seconds must be positive")
+    started = time.monotonic()
+    process_started = time.process_time()
+    finished = threading.Event()
+    LOGGER.info("Started: %s", label)
+
+    def heartbeat() -> None:
+        while not finished.wait(heartbeat_seconds):
+            elapsed = time.monotonic() - started
+            cpu_percent = 100.0 * (time.process_time() - process_started) / max(
+                elapsed, 1e-12
+            )
+            peak_rss = _peak_rss_bytes()
+            memory = format_bytes(peak_rss) if peak_rss is not None else "unavailable"
+            LOGGER.info(
+                "Still running: %s | elapsed=%s | peak_ram=%s | avg_cpu=%.0f%%",
+                label,
+                format_duration(elapsed),
+                memory,
+                cpu_percent,
+            )
+
+    worker = threading.Thread(
+        target=heartbeat,
+        name=f"progress-heartbeat:{label}",
+        daemon=True,
+    )
+    worker.start()
+    try:
+        yield
+    except BaseException:
+        elapsed = time.monotonic() - started
+        LOGGER.exception("Failed: %s | elapsed=%s", label, format_duration(elapsed))
+        raise
+    else:
+        elapsed = time.monotonic() - started
+        peak_rss = _peak_rss_bytes()
+        memory = format_bytes(peak_rss) if peak_rss is not None else "unavailable"
+        LOGGER.info(
+            "Completed: %s | elapsed=%s | peak_ram=%s",
+            label,
+            format_duration(elapsed),
+            memory,
+        )
+    finally:
+        finished.set()
+        worker.join(timeout=min(heartbeat_seconds, 1.0))
 
 
 def seed_everything(seed: int) -> None:

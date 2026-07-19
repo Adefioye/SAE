@@ -15,6 +15,7 @@ from tqdm.auto import tqdm
 
 from .adapters import SAEAdapter
 from .config import MatchingConfig
+from .utils import monitored_operation
 
 LOGGER = logging.getLogger(__name__)
 
@@ -255,7 +256,10 @@ def match_adapters(
             score += weights[2] * _activation_correlation_matrix(latents_a, latents_b)
         maximum_feature_b = np.argmax(score, axis=1).astype(np.int64)
         maximum_score = score[np.arange(n_a), maximum_feature_b]
-        feature_a, feature_b = linear_sum_assignment(score, maximize=True)
+        with monitored_operation(
+            f"exact {config.method} Hungarian assignment {sae_a.name}/{sae_b.name}"
+        ):
+            feature_a, feature_b = linear_sum_assignment(score, maximize=True)
         matching_score = score[feature_a, feature_b]
     else:
         # Orient the candidate graph with the smaller dictionary as rows so a full
@@ -339,7 +343,10 @@ def match_adapters(
         graph = sparse.coo_matrix(
             (costs, (graph_rows, graph_columns)), shape=(n_rows, n_columns)
         ).tocsr()
-        matched_rows, matched_columns = min_weight_full_bipartite_matching(graph)
+        with monitored_operation(
+            f"sparse {config.method} assignment {sae_a.name}/{sae_b.name}"
+        ):
+            matched_rows, matched_columns = min_weight_full_bipartite_matching(graph)
         score_lookup = sparse.coo_matrix(
             (graph_scores, (graph_rows, graph_columns)), shape=(n_rows, n_columns)
         ).tocsr()
@@ -373,11 +380,15 @@ def match_adapters(
             )
         else:
             encoder_cosine = np.full(len(feature_a), np.nan, dtype=np.float32)
-    activation_correlation = (
-        _activation_correlations(latents_a, latents_b, feature_a, feature_b)
-        if latents_a is not None and latents_b is not None
-        else np.full(len(feature_a), np.nan, dtype=np.float32)
-    )
+    if latents_a is not None and latents_b is not None:
+        with monitored_operation(
+            f"matched activation correlations {sae_a.name}/{sae_b.name}"
+        ):
+            activation_correlation = _activation_correlations(
+                latents_a, latents_b, feature_a, feature_b
+            )
+    else:
+        activation_correlation = np.full(len(feature_a), np.nan, dtype=np.float32)
     return MatchResult(
         feature_a=feature_a,
         feature_b=feature_b,

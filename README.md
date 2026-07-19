@@ -102,6 +102,30 @@ python -m sae_seed_similarity.compare_representations --config configs/pythia_16
 python -m sae_seed_similarity.make_report --config configs/pythia_160m_two_seed.yaml
 ```
 
+### Progress monitoring
+
+The complete pipeline reports overall stage numbers and uses `tqdm` bars for
+dataset loading, model batches, similarity blocks, matched-feature overlap,
+control-pair selection, activation-overlap controls, identity controls, and
+report plots. Blocking operations that cannot expose a reliable percentage—
+including exact Hungarian assignment, CKA covariance products, and SVCCA
+decompositions—emit a heartbeat every 30 seconds with elapsed time, peak
+process RAM, and average process CPU usage. CKA reports each of its three
+covariance products, while SVCCA separately reports the two PCA/SVD reductions
+and canonical-correlation step.
+
+Run through `run_all` to receive both stage-level and metric-level progress:
+
+```bash
+python -m sae_seed_similarity.run_all \
+  --config configs/pythia_160m_two_seed.yaml \
+  --verbose
+```
+
+GPU inactivity during Hungarian assignment, CKA, or SVCCA is expected because
+those operations run primarily on the CPU. A heartbeat indicates that the
+process is still active even when no percentage is available.
+
 ## Upload seed-similarity metrics
 
 After the complete analysis finishes, set `HF_TOKEN` in the repository-root

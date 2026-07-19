@@ -10,6 +10,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 from .config import EvaluationConfig, load_config
 from .plotting import (
@@ -21,7 +22,7 @@ from .plotting import (
     paper_shared_orphan_fractions,
     paper_similarity_vs_frequency,
     paper_threshold_sweep,
-    save_figure,
+    save_figure as _save_figure,
     scatter,
 )
 from .statistics import bootstrap_ci, matched_control_statistics
@@ -133,6 +134,13 @@ def _statistical_summary(
 
 def _make_plots(config: EvaluationConfig, store: ArtifactStore) -> None:
     plot_dir = store.root / "plots"
+    plot_progress = tqdm(desc="report plots", unit="plot")
+
+    def save_figure(figure: Any, output_dir: Path, name: str) -> None:
+        plot_progress.set_postfix_str(name, refresh=True)
+        _save_figure(figure, output_dir, name)
+        plot_progress.update()
+
     for filename, title, output_name in (
         ("cka_matrix.csv", "Linear CKA across SAE seeds", "cka_heatmap"),
         ("svcca_matrix.csv", "Mean SVCCA across SAE seeds", "svcca_heatmap"),
@@ -270,6 +278,7 @@ def _make_plots(config: EvaluationConfig, store: ArtifactStore) -> None:
         pca_axis.legend(fontsize="small")
         save_figure(figure, plot_dir, "canonical_correlation_spectra")
         save_figure(pca_figure, plot_dir, "pca_explained_variance_curves")
+    plot_progress.close()
 
 
 def run(config: EvaluationConfig) -> Path:

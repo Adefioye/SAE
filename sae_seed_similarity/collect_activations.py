@@ -19,6 +19,7 @@ from .storage import ArtifactStore
 from .utils import (
     configure_logging,
     create_manifest,
+    monitored_operation,
     resolve_device,
     seed_everything,
     validate_cache_manifest,
@@ -105,23 +106,28 @@ def _load_examples(
     bos_id = tokenizer.bos_token_id
     rows: list[list[int]] = []
     source_indices: list[int] = []
-    for dataset_index, example in enumerate(dataset):
-        if len(rows) >= cfg.dataset.max_sequences:
-            break
-        raw_tokens = example.get(cfg.dataset.token_column)
-        if raw_tokens is not None:
-            tokens = [int(token) for token in raw_tokens]
-            if bos_id is not None and (not tokens or tokens[0] != bos_id):
-                tokens = [int(bos_id), *tokens]
-        else:
-            text = example.get(cfg.dataset.text_column)
-            if not isinstance(text, str) or not text:
+    progress = tqdm(total=cfg.dataset.max_sequences, desc="load dataset sequences")
+    try:
+        for dataset_index, example in enumerate(dataset):
+            if len(rows) >= cfg.dataset.max_sequences:
+                break
+            raw_tokens = example.get(cfg.dataset.token_column)
+            if raw_tokens is not None:
+                tokens = [int(token) for token in raw_tokens]
+                if bos_id is not None and (not tokens or tokens[0] != bos_id):
+                    tokens = [int(bos_id), *tokens]
+            else:
+                text = example.get(cfg.dataset.text_column)
+                if not isinstance(text, str) or not text:
+                    continue
+                tokens = tokenizer.encode(text, add_special_tokens=True)
+            if len(tokens) < 2:
                 continue
-            tokens = tokenizer.encode(text, add_special_tokens=True)
-        if len(tokens) < 2:
-            continue
-        rows.append(tokens[:length])
-        source_indices.append(dataset_index)
+            rows.append(tokens[:length])
+            source_indices.append(dataset_index)
+            progress.update()
+    finally:
+        progress.close()
     if not rows:
         raise RuntimeError("The configured dataset yielded no usable token sequences")
 
@@ -181,7 +187,10 @@ def collect(config: EvaluationConfig) -> ArtifactStore:
     flat_valid = attention_mask.reshape(-1).astype(bool)
     sequence_ids, positions = np.nonzero(attention_mask)
     valid_token_ids = token_ids.reshape(-1)[flat_valid]
-    decoded = [model.tokenizer.decode([int(token)]) for token in valid_token_ids]
+    decoded = [
+        model.tokenizer.decode([int(token)])
+        for token in tqdm(valid_token_ids, desc="decode token metadata")
+    ]
     metadata = pd.DataFrame(
         {
             "activation_row": np.arange(flat_valid.sum(), dtype=np.int64),
@@ -192,7 +201,8 @@ def collect(config: EvaluationConfig) -> ArtifactStore:
             "dataset_index": np.asarray(dataset_indices, dtype=np.int64)[sequence_ids],
         }
     )
-    metadata.to_parquet(store.row_metadata, index=False)
+    with monitored_operation("save activation row metadata"):
+        metadata.to_parquet(store.row_metadata, index=False)
 
     adapters = [
         load_sae(item, device=device, dtype=config.base_model.dtype)
