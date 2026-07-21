@@ -254,13 +254,13 @@ def _make_plots(config: EvaluationConfig, store: ArtifactStore) -> None:
         pca_figure, pca_axis = plt.subplots(figsize=(8, 5))
         for path in spectra_files:
             values = np.load(path)
-            axis.plot(values["correlations"], label=path.stem)
-            pca_axis.plot(values["pca_curve_a"], alpha=0.7, label=f"{path.stem}: A")
+            axis.plot(values["correlations"])
+            pca_axis.plot(values["pca_curve_a"], alpha=0.7, label="A")
             pca_axis.plot(
                 values["pca_curve_b"],
                 alpha=0.7,
                 linestyle="--",
-                label=f"{path.stem}: B",
+                label="B",
             )
         axis.set(
             title="Canonical-correlation spectra",
@@ -268,7 +268,6 @@ def _make_plots(config: EvaluationConfig, store: ArtifactStore) -> None:
             ylabel="Correlation",
             ylim=(0, 1.02),
         )
-        axis.legend(fontsize="small")
         pca_axis.set(
             title="PCA explained-variance curves",
             xlabel="Principal component",

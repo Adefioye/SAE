@@ -88,7 +88,7 @@ The shared population is a genuine reproducible core: its weight alignment is ac
 
 The inferred shared fraction is strongly threshold-dependent:
 
-| Cosine threshold | Both matched cosines | Agreement plus both cosines | Both non-bijective maximum cosines |
+| Cosine threshold | Threshold cosine similarity | Equal + Threshold cosine similarity | Max cosine similarity |
 |---:|---:|---:|---:|
 | 0.2 | 79.3% | 48.8% | 93.5% |
 | 0.3 | 46.8% | 41.0% | 55.4% |

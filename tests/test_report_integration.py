@@ -169,7 +169,14 @@ def test_report_from_synthetic_cached_artifacts(tmp_path: Path) -> None:
     assert report.exists()
     assert (store.root / "statistical_summary.csv").exists()
     assert (store.root / "plots" / "cka_heatmap.png").exists()
-    assert (store.root / "plots" / "canonical_correlation_spectra.svg").exists()
+    canonical_svg = (
+        store.root / "plots" / "canonical_correlation_spectra.svg"
+    ).read_text()
+    assert 'id="legend_' not in canonical_svg
+    pca_svg = (store.root / "plots" / "pca_explained_variance_curves.svg").read_text()
+    assert "seed_0__seed_1" not in pca_svg
+    assert "<!-- A -->" in pca_svg
+    assert "<!-- B -->" in pca_svg
     assert (
         store.root / "plots" / "paper_figure_1_encoder_decoder_alignment.png"
     ).exists()
