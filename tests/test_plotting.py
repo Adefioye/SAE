@@ -77,5 +77,7 @@ def test_save_figure_removes_grid_lines(tmp_path) -> None:
     axis.plot([0, 1], [0, 1])
     axis.grid(True)
     save_figure(figure, tmp_path, "without_grid")
+    assert (tmp_path / "without_grid.png").exists()
+    assert not (tmp_path / "without_grid.svg").exists()
     assert not any(line.get_visible() for line in axis.get_xgridlines())
     assert not any(line.get_visible() for line in axis.get_ygridlines())

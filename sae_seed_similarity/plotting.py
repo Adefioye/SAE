@@ -13,13 +13,12 @@ sns.set_theme(style="white", context="notebook")
 
 
 def save_figure(figure: plt.Figure, output_dir: Path, name: str) -> None:
-    """Save one publication-ready figure as both PNG and SVG."""
+    """Save one publication-ready figure as PNG."""
     output_dir.mkdir(parents=True, exist_ok=True)
     for axis in figure.axes:
         axis.grid(False)
     figure.tight_layout()
     figure.savefig(output_dir / f"{name}.png", dpi=200, bbox_inches="tight")
-    figure.savefig(output_dir / f"{name}.svg", bbox_inches="tight")
     plt.close(figure)
 
 

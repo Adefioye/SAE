@@ -189,7 +189,7 @@ that individual features align or that either representation is causally used.
 
 ## Figures and plots
 
-The reporting stage saves every figure as both PNG and SVG under
+The reporting stage saves every figure as PNG under
 `<output_dir>/plots/`. The figures cover four distinct questions: whether
 individual dictionary features align, whether aligned features activate alike,
 whether the complete latent spaces preserve token geometry, and whether their
@@ -329,7 +329,6 @@ svcca_summary.csv
 svcca_correlations/
 controls_summary.csv
 plots/*.png
-plots/*.svg
 ```
 
 The manifest records the resolved configuration, code commit, platform, and
