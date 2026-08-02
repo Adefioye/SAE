@@ -41,13 +41,17 @@ ComposedFeatureTMS = toy_source.ComposedFeatureTMS
 
 
 def default_device() -> torch.device:
-    """Match the original repository's CUDA-or-CPU device policy."""
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Select the best available accelerator, falling back to CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 @dataclass(frozen=True)
 class ToyTrainingConfig:
-    """Training settings from cell 8 of the source notebook."""
+    """Training settings for TMS"""
 
     batches: int = 10_000
     batch_size: int = 1_000
@@ -58,7 +62,7 @@ class ToyTrainingConfig:
 
 @dataclass(frozen=True)
 class SAETrainingConfig:
-    """SAELens replacement for the source notebook's custom AutoEncoderConfig."""
+    """Settings for SAE training on hidden activations of """
 
     d_sae: int = 4
     training_samples: int = 128_000_000
@@ -77,7 +81,7 @@ FULL_TOY_TRAINING = ToyTrainingConfig()
 FULL_SAE_TRAINING = SAETrainingConfig()
 SOURCE_GRID_LRS = (3e-5, 1e-4, 3e-4, 1e-3, 3e-3)
 SOURCE_GRID_L1_COEFFICIENTS = (1e-2, 3e-2, 1e-1, 3e-1, 1.0)
-SOURCE_INSTANCE_SEEDS = (0, 1, 2, 3, 4)
+SOURCE_INSTANCE_SEEDS = (0, 1)
 
 
 def make_correlated_amplitude_model(
