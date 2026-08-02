@@ -1,0 +1,9 @@
+torch>=2.6
+sae-lens==6.47.0
+geom-median>=0.1.0
+h5py>=3.11
+matplotlib>=3.8
+numpy>=1.26
+jupyterlab>=4
+ipywidgets>=8
+pytest>=8

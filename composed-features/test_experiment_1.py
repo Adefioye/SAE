@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import torch
+
+from experiment_1 import (
+    SAETrainingConfig,
+    TMSHiddenActivationIterator,
+    ToyTrainingConfig,
+    make_correlated_amplitude_model,
+    train_sae,
+    train_toy_model,
+)
+from visualization import data_feature_responses, decoder_cosine_similarity, evaluate_sae
+
+
+def test_correlated_amplitude_sampler_has_expected_support_and_values():
+    model = make_correlated_amplitude_model(ToyTrainingConfig(batches=1, seed=3))
+    batch = model.get_batch(2_000).cpu()
+
+    assert torch.all((batch[:, :2] > 0).sum(dim=1) == 1)
+    assert torch.all((batch[:, 2:] > 0).sum(dim=1) == 1)
+    assert torch.allclose(batch[:, :2].sum(dim=1), batch[:, 2:].sum(dim=1))
+    assert batch.max() < 1
+    assert batch.std() > 0
+
+
+def test_hidden_activation_iterator_returns_tms_hidden_states():
+    model = make_correlated_amplitude_model(ToyTrainingConfig(batches=1))
+    hidden = next(TMSHiddenActivationIterator(model, batch_size=17))
+    assert hidden.shape == (17, 2)
+    assert not hidden.requires_grad
+
+
+def test_tiny_toy_and_saelens_training_smoke():
+    toy_cfg = ToyTrainingConfig(batches=2, batch_size=16, seed=1)
+    model = make_correlated_amplitude_model(toy_cfg)
+    losses = train_toy_model(model, toy_cfg)
+    assert len(losses) == 2
+    assert all(torch.isfinite(torch.tensor(losses)))
+
+    sae_cfg = SAETrainingConfig(
+        training_samples=32,
+        batch_size=16,
+        d_sae=4,
+        seed=1,
+    )
+    sae = train_sae(model, sae_cfg)
+    metrics = evaluate_sae(model, sae, samples=32)
+    assert set(metrics) == {"mse", "normalized_mse", "mean_l0", "mean_l1"}
+    assert data_feature_responses(model, sae).shape == (4, 4)
+    assert decoder_cosine_similarity(model, sae).shape == (4, 4)
+
