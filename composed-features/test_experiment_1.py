@@ -3,13 +3,15 @@ from __future__ import annotations
 import pytest
 import torch
 
-from experiment_1 import (
+from sae import (
     SAETrainingConfig,
     TMSHiddenActivationIterator,
+    train_sae,
+)
+from toy_model import (
     ToyTrainingConfig,
     default_device,
     make_correlated_amplitude_model,
-    train_sae,
     train_toy_model,
 )
 from visualization import data_feature_responses, decoder_cosine_similarity, evaluate_sae
@@ -45,6 +47,7 @@ def test_correlated_amplitude_sampler_has_expected_support_and_values():
     model = make_correlated_amplitude_model(ToyTrainingConfig(batches=1, seed=3))
     batch = model.get_batch(2_000).cpu()
 
+    assert torch.equal(model.get_prob_table().cpu(), torch.full((2, 2), 0.25))
     assert torch.all((batch[:, :2] > 0).sum(dim=1) == 1)
     assert torch.all((batch[:, 2:] > 0).sum(dim=1) == 1)
     assert torch.allclose(batch[:, :2].sum(dim=1), batch[:, 2:].sum(dim=1))

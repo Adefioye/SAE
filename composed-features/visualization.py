@@ -8,10 +8,6 @@ import matplotlib.pyplot as plt
 import torch
 from torch import Tensor
 
-# Importing experiment_1 also makes the upstream source directory importable.
-from experiment_1 import toy_source as _toy_source  # noqa: F401
-from plot_fns import w_cossim
-
 
 @torch.no_grad()
 def evaluate_sae(model, sae, *, samples: int = 10_000) -> dict[str, float]:
@@ -40,10 +36,11 @@ def data_feature_responses(model, sae) -> Tensor:
 @torch.no_grad()
 def decoder_cosine_similarity(model, sae) -> Tensor:
     """Cosine similarity between TMS feature vectors and SAE decoder vectors."""
-    # Reuse the original plot helper, preserving SAE feature order explicitly.
-    order = torch.arange(sae.W_dec.shape[0], device=sae.W_dec.device)
-    similarities, _ = w_cossim(model.W, sae.W_dec, sort=order)
-    return similarities
+    data_vectors = model.W / model.W.norm(dim=1, keepdim=True).clamp_min(1e-12)
+    decoder_vectors = sae.W_dec / sae.W_dec.norm(dim=1, keepdim=True).clamp_min(
+        1e-12
+    )
+    return (data_vectors @ decoder_vectors.T).detach().cpu()
 
 
 def _rotation_from_first_feature(model) -> Tensor:
@@ -82,7 +79,11 @@ def plot_sae_matrices(model, sae):
     responses = data_feature_responses(model, sae)
     fig, axes = plt.subplots(1, 2, figsize=(7, 3), constrained_layout=True)
     im0 = axes[0].imshow(similarities, cmap="RdYlBu_r", vmin=-1, vmax=1)
-    axes[0].set(title="Decoder cosine similarity", xlabel="SAE feature", ylabel="data feature")
+    axes[0].set(
+        title="Decoder cosine similarity",
+        xlabel="SAE feature",
+        ylabel="data feature",
+    )
     fig.colorbar(im0, ax=axes[0], shrink=0.8)
     im1 = axes[1].imshow(responses, cmap="viridis", vmin=0)
     axes[1].set(title="SAE activation", xlabel="SAE feature", ylabel="data feature")
@@ -129,7 +130,10 @@ def plot_geometry(model, sae, *, title: str | None = None):
 
 def select_best_sae(model, saes: Sequence, *, samples: int = 10_000):
     """Select the seed with the lowest normalized reconstruction error."""
-    return min(saes, key=lambda sae: evaluate_sae(model, sae, samples=samples)["normalized_mse"])
+    return min(
+        saes,
+        key=lambda sae: evaluate_sae(model, sae, samples=samples)["normalized_mse"],
+    )
 
 
 def plot_sae_grid(
@@ -138,7 +142,7 @@ def plot_sae_grid(
     learning_rates: Sequence[float],
     l1_coefficients: Sequence[float],
 ):
-    """Visualize the best seed at each point in the source notebook's grid."""
+    """Visualize the best seed at each point in the hyperparameter grid."""
     fig, axes = plt.subplots(
         len(learning_rates),
         len(l1_coefficients),
