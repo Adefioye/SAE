@@ -40,15 +40,15 @@ class ToyModelConfig:
 
     hidden_size: int = 2
     feat_sets: tuple[int, int] = (2, 2)
-    active_features_per_draw: int = 1
+    active_pairs_per_sample: int = 1
     set_magnitude_correlation: float = 1.0
     input_size: int = field(init=False)
 
     def __post_init__(self) -> None:
         if len(self.feat_sets) != 2 or any(size <= 0 for size in self.feat_sets):
             raise ValueError("feat_sets must contain two positive set sizes")
-        if self.active_features_per_draw <= 0:
-            raise ValueError("active_features_per_draw must be positive")
+        if self.active_pairs_per_sample <= 0:
+            raise ValueError("active_pairs_per_sample must be positive")
         if not 0 <= self.set_magnitude_correlation <= 1:
             raise ValueError("set_magnitude_correlation must be between 0 and 1")
         self.input_size = sum(self.feat_sets)
@@ -103,7 +103,7 @@ class ComposedFeatureTMS(TMS):
     @torch.no_grad()
     def get_batch(self, batch_size: int) -> Tensor:
         device = self.W.device
-        draws = self.cfg.active_features_per_draw
+        draws = self.cfg.active_pairs_per_sample
         amplitudes = torch.rand(batch_size, 2, draws, device=device)
         correlation = self.cfg.set_magnitude_correlation
         amplitudes[:, 1] = (
@@ -141,7 +141,7 @@ def make_correlated_amplitude_model(
         hidden_size=2,
         feat_sets=(2, 2),
         set_magnitude_correlation=1,
-        active_features_per_draw=1,
+        active_pairs_per_sample=1,
     )
     return ComposedFeatureTMS(cfg).to(device or default_device())
 

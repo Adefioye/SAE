@@ -14,7 +14,11 @@ from toy_model import (
     make_correlated_amplitude_model,
     train_toy_model,
 )
-from visualization import data_feature_responses, decoder_cosine_similarity, evaluate_sae
+from visualization import (
+    data_feature_responses,
+    decoder_cosine_similarity,
+    evaluate_sae,
+)
 
 
 @pytest.mark.parametrize(
