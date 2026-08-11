@@ -1,6 +1,8 @@
 torch>=2.6
 sae-lens==6.47.0
 matplotlib>=3.8
+pandas>=2.0
+scipy>=1.11
 jupyterlab>=4
 ipykernel>=6
 pytest>=8

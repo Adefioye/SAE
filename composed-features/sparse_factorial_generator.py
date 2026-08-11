@@ -9,6 +9,7 @@ class FactorialConfig:
     n_x: int = 256
     n_y: int = 256
     activation_dim: int = 256
+    amplitude_correlation: float = 0.0
     singleton_probability: float = 0.0
     noise_std: float = 0.0
     seed: int = 0
@@ -31,9 +32,19 @@ class SparseFactorialGenerator:
         self,
         cfg: FactorialConfig,
         device: str = "cpu",
+        true_dictionary: torch.Tensor | None = None,
+        normalize_dictionary: bool = True,
     ) -> None:
+        if cfg.n_x <= 0 or cfg.n_y <= 0:
+            raise ValueError("n_x and n_y must be positive.")
+        if cfg.activation_dim <= 0:
+            raise ValueError("activation_dim must be positive.")
+        if not 0.0 <= cfg.amplitude_correlation <= 1.0:
+            raise ValueError("amplitude_correlation must lie in [0, 1].")
         if not 0.0 <= cfg.singleton_probability <= 1.0:
             raise ValueError("singleton_probability must lie in [0, 1].")
+        if cfg.noise_std < 0:
+            raise ValueError("noise_std must be nonnegative.")
 
         self.cfg = cfg
         self.device = torch.device(device)
@@ -42,20 +53,44 @@ class SparseFactorialGenerator:
         self.rng = torch.Generator(device=self.device)
         self.rng.manual_seed(cfg.seed)
 
-        # Random unit ground-truth directions.
-        dictionary = torch.randn(
-            self.n_features,
-            cfg.activation_dim,
-            generator=self.rng,
-            device=self.device,
-        )
+        if true_dictionary is None:
+            # Random unit ground-truth directions.
+            dictionary = torch.randn(
+                self.n_features,
+                cfg.activation_dim,
+                generator=self.rng,
+                device=self.device,
+            )
+        else:
+            dictionary = torch.as_tensor(
+                true_dictionary,
+                dtype=torch.float32,
+                device=self.device,
+            )
+            expected_shape = (self.n_features, cfg.activation_dim)
+            if tuple(dictionary.shape) != expected_shape:
+                raise ValueError(
+                    "true_dictionary must have shape "
+                    f"{expected_shape}, got {tuple(dictionary.shape)}."
+                )
+            if not torch.isfinite(dictionary).all():
+                raise ValueError("true_dictionary must contain only finite values.")
+            if torch.any(dictionary.norm(dim=1) == 0):
+                raise ValueError("true_dictionary rows must be nonzero.")
 
-        self.true_dictionary = F.normalize(dictionary, dim=1)
+        self.true_dictionary = (
+            F.normalize(dictionary, dim=1)
+            if normalize_dictionary
+            else dictionary.clone()
+        )
 
     def sample(
         self,
         batch_size: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive.")
+
         cfg = self.cfg
 
         z = torch.zeros(
@@ -108,6 +143,13 @@ class SparseFactorialGenerator:
 
         use_x = pair_mask | x_only_mask
         use_y = pair_mask | y_only_mask
+
+        # Match the composed-feature setup: only paired examples correlate
+        # their amplitudes; singleton amplitudes retain a U[0, 1) marginal.
+        y_amplitudes[pair_mask] = (
+            cfg.amplitude_correlation * x_amplitudes[pair_mask]
+            + (1 - cfg.amplitude_correlation) * y_amplitudes[pair_mask]
+        )
 
         z[rows[use_x], x_indices[use_x]] = x_amplitudes[use_x]
         z[rows[use_y], y_indices[use_y]] = y_amplitudes[use_y]

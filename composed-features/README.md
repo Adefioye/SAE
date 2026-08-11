@@ -1,7 +1,7 @@
 # Composed-features experiments with SAELens
 
-This directory currently contains Experiment 1: **Small Composed Model —
-Correlated Feature Amplitudes**.
+This directory contains the small composed-feature experiments and their
+SAELens comparisons.
 
 ## Run
 
@@ -32,6 +32,16 @@ grid point trains an independent SAE for every configured seed.
 - `01_correlated_feature_amplitudes.ipynb` runs training and visualization.
 - `test_experiment_1.py` verifies the sampler, hidden activations, and a small
   end-to-end SAELens training run.
+
+## Experiment 3: sparse factorial antipodal geometry
+
+`03_sparse_factorial_antipodal_geometry.ipynb` reuses the trained Experiment 1
+dictionary at `N=2`, constructs scalable antipodal dictionaries, and tests
+primitive-versus-composition recovery with SAELens `StandardTrainingSAE`.
+Long runs are disabled by default. Start with `QUICK_MODE = True`, enable one
+`RUN_*` flag at a time, and switch to full mode after the smoke runs succeed.
+Checkpoints and CSV results are written beneath
+`artifacts/03_sparse_factorial_antipodal/`.
 
 ## Correlated feature amplitudes
 
