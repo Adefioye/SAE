@@ -43,6 +43,19 @@ Long runs are disabled by default. Start with `QUICK_MODE = True`, enable one
 Checkpoints and CSV results are written beneath
 `artifacts/03_sparse_factorial_antipodal/`.
 
+## Experiment 4: fixed primitive exposure at `N=256`
+
+`04_fixed_primitive_exposure_budget.ipynb` tests whether the decline in
+large-`N` primitive recovery is caused by the fixed total training budget. It
+holds `N=256` fixed and sweeps the expected number of training examples per
+primitive, `K = T/N`, along one resumable SAE training trajectory. The
+primary `K=16M` milestone matches the successful `N=8`, `T=128M` exposure from
+Experiment 3. Review the notebook's compute table and run quick mode before
+setting `RUN_EXPERIMENT=True`; the four milestones `K = 8M, 16M, 24M, 32M`
+correspond to `T = 2.048B, 4.096B, 6.144B, 8.192B` total samples. The full
+trajectory reaches 8M optimizer steps. Checkpoints and results are written beneath
+`artifacts/04_fixed_primitive_exposure/`.
+
 ## Correlated feature amplitudes
 
 Each sample has exactly two non-zero features: one of `(x1, x2)` and one of
