@@ -14,6 +14,26 @@ jupyter lab 01_correlated_feature_amplitudes.ipynb
 
 Choose the `Python (SAE Composed Features)` kernel in Jupyter.
 
+### Google Colab (Experiment 4/4B)
+
+Open
+[`04_fixed_primitive_exposure_budget.ipynb` in Colab](https://colab.research.google.com/github/Adefioye/SAE/blob/main/composed-features/04_fixed_primitive_exposure_budget.ipynb),
+select a GPU runtime, and run the notebook's **Environment setup** cell first.
+On Colab, that cell clones this repository and installs the complete
+`composed-features/requirements.txt` automatically.
+
+The setup cell offers two storage modes:
+
+- `USE_GOOGLE_DRIVE = False` clones into `/content/SAE`; this is convenient for
+  a quick pipeline check, but checkpoints disappear when the Colab runtime ends.
+- `USE_GOOGLE_DRIVE = True` mounts Drive and clones into
+  `MyDrive/SAE`; use this for the long Experiment 4B trajectories so milestone
+  checkpoints survive disconnects and can be resumed.
+
+The full Experiment 4B run processes 8.192B samples for each of three SAE
+initializations. A normal Colab session may not finish it in one allocation, so
+use Drive-backed checkpoints and keep the resumability milestones enabled.
+
 The notebook supports two execution sizes:
 
 - `FULL_RUN = False`: quick model and SAE training.
