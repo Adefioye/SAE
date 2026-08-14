@@ -56,6 +56,17 @@ correspond to `T = 2.048B, 4.096B, 6.144B, 8.192B` total samples. The full
 trajectory reaches 8M optimizer steps. Checkpoints and results are written beneath
 `artifacts/04_fixed_primitive_exposure/`.
 
+## Experiment 5: fixed-marginal pair correlation
+
+`05_fixed_marginal_pair_correlation.ipynb` holds `N=8` and every primitive's
+marginal probability fixed at `1/8`, while increasing the occurrence correlation
+between eight one-to-one matched `(x_i, y_j)` pairs. It sweeps
+`rho = 0, 0.1, 0.25, 0.5, 0.75, 0.9, 1`, trains one independent 128M-sample SAE
+per distribution (reusing the Experiment 3 `rho=0` checkpoint when available),
+and measures primitive recovery, matched-composition recovery, functional pair
+selectivity, decoder allocation, reconstruction, and sparsity. Checkpoints,
+CSV results, and plots are written beneath `artifacts/05_pair_correlation/`.
+
 ## Correlated feature amplitudes
 
 Each sample has exactly two non-zero features: one of `(x1, x2)` and one of
