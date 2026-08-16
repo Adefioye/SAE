@@ -1,0 +1,24 @@
+{
+  "experiment": "6A",
+  "run_label": "full_125m",
+  "selection_rule": "maximize equal-weight mean of hungarian_90 and mmcs; tie-break by hungarian_90, mmcs, then baseline proximity",
+  "selected_l1_coefficient": 0.1,
+  "hungarian_90": 0.888671875,
+  "mmcs": 0.9654927849769592,
+  "selection_score": 0.9270823299884796,
+  "training_samples_per_sae": 125000000,
+  "train_batch_size": 16384,
+  "learning_rate_held_fixed": 0.0003,
+  "l1_candidates": [
+    0.003,
+    0.005,
+    0.0075,
+    0.01,
+    0.015,
+    0.02,
+    0.03,
+    0.05,
+    0.075,
+    0.1
+  ]
+}
