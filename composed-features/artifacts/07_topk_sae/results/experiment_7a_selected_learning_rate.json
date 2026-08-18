@@ -1,0 +1,26 @@
+{
+  "experiment": "7A",
+  "architecture": "topk",
+  "k": 2,
+  "tuning_n": 256,
+  "sae_seed": 0,
+  "training_samples_per_sae": 125000000,
+  "train_batch_size": 16384,
+  "learning_rate_candidates": [
+    0.0001,
+    0.00015,
+    0.0002,
+    0.0003,
+    0.0004,
+    0.0005,
+    0.0006,
+    0.00075,
+    0.001,
+    0.0015
+  ],
+  "selection_rule": "maximize equal-weight mean of hungarian_90 and mmcs; tie-break by hungarian_90, mmcs, then proximity to 3e-4",
+  "selected_learning_rate": 0.0002,
+  "hungarian_90": 0.98046875,
+  "mmcs": 0.9262423515319824,
+  "selection_score": 0.9533555507659912
+}
