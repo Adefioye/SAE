@@ -1,0 +1,30 @@
+{
+  "experiment": "8A",
+  "architecture": "batchtopk",
+  "k": 2.0,
+  "tuning_n": 256,
+  "tuning_sae_seeds": [
+    0,
+    1,
+    2
+  ],
+  "training_samples_per_sae": 125000000,
+  "train_batch_size": 16384,
+  "learning_rate_candidates": [
+    5e-05,
+    7.5e-05,
+    0.0001,
+    0.000125,
+    0.00015,
+    0.000175,
+    0.0002,
+    0.00025
+  ],
+  "selection_rule": "maximize worst-seed hungarian_90, then median hungarian_90, median mmcs, lower hungarian_90 standard deviation, then proximity to 1.5e-4",
+  "selected_learning_rate": 0.000175,
+  "hungarian_90_mean": 0.9524739583333334,
+  "hungarian_90_median": 0.955078125,
+  "hungarian_90_min": 0.947265625,
+  "mmcs_mean": 0.9665137132008871,
+  "mmcs_median": 0.9669991135597229
+}

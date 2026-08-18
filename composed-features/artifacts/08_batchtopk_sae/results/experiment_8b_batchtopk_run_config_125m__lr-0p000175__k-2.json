@@ -1,0 +1,41 @@
+{
+  "experiment": "8B",
+  "architecture": "batchtopk",
+  "k": 2.0,
+  "selected_learning_rate": 0.000175,
+  "n_values": [
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128,
+    256
+  ],
+  "sae_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "training_samples_per_sae": 125000000,
+  "train_batch_size": 16384,
+  "evaluation_data_seed": 10000,
+  "evaluation_batch_size": 16384,
+  "dictionary_seed": 0,
+  "data_seed": 0,
+  "apply_b_dec_to_input": false,
+  "normalize_activations": "none",
+  "aux_loss_coefficient": 1.0,
+  "rescale_acts_by_decoder_norm": true,
+  "decoder_init_norm": 1.0,
+  "topk_threshold_lr": 0.01,
+  "lr_scheduler_name": "constant",
+  "adam_beta1": 0.0,
+  "adam_beta2": 0.999,
+  "sae_lens_version": "6.47.0",
+  "torch_version": "2.10.0+cu128",
+  "python_version": "3.12.13"
+}
