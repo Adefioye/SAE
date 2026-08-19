@@ -86,3 +86,70 @@ def test_nonpositive_batch_size_is_rejected():
 
     with pytest.raises(ValueError, match="batch_size"):
         generator.sample(0)
+
+
+def test_zipf_probabilities_follow_rank_frequency_law():
+    generator = SparseFactorialGenerator(
+        FactorialConfig(
+            n_x=8,
+            n_y=8,
+            activation_dim=8,
+            index_distribution="zipf",
+            zipf_exponent=1.0,
+            seed=17,
+        )
+    )
+
+    assert torch.isclose(generator.x_probabilities.sum(), torch.tensor(1.0))
+    assert torch.allclose(
+        generator.x_probabilities,
+        generator.y_probabilities,
+    )
+    assert torch.isclose(
+        generator.x_probabilities[0] / generator.x_probabilities[-1],
+        torch.tensor(8.0),
+    )
+
+
+def test_zipf_sampling_matches_expected_primitive_frequencies():
+    generator = SparseFactorialGenerator(
+        FactorialConfig(
+            n_x=8,
+            n_y=8,
+            activation_dim=8,
+            index_distribution="zipf",
+            zipf_exponent=1.0,
+            seed=23,
+        )
+    )
+
+    _, coefficients = generator.sample(200_000)
+    observed_x = (coefficients[:, :8] > 0).float().mean(dim=0)
+    observed_y = (coefficients[:, 8:] > 0).float().mean(dim=0)
+    x_indices = coefficients[:, :8].argmax(dim=1)
+    y_indices = coefficients[:, 8:].argmax(dim=1)
+    observed_pairs = torch.bincount(
+        x_indices * 8 + y_indices,
+        minlength=64,
+    ).reshape(8, 8) / len(coefficients)
+    expected_pairs = torch.outer(
+        generator.x_probabilities,
+        generator.y_probabilities,
+    )
+
+    assert torch.allclose(observed_x, generator.x_probabilities, atol=0.003)
+    assert torch.allclose(observed_y, generator.y_probabilities, atol=0.003)
+    assert torch.allclose(observed_pairs, expected_pairs, atol=0.003)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"index_distribution": "not-a-distribution"},
+        {"zipf_exponent": -0.1},
+        {"zipf_shift": -0.1},
+    ],
+)
+def test_invalid_index_distribution_configuration_is_rejected(overrides):
+    with pytest.raises(ValueError):
+        SparseFactorialGenerator(FactorialConfig(**overrides))

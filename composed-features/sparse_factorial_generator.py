@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn.functional as F
@@ -13,6 +14,9 @@ class FactorialConfig:
     singleton_probability: float = 0.0
     noise_std: float = 0.0
     seed: int = 0
+    index_distribution: Literal["uniform", "zipf"] = "uniform"
+    zipf_exponent: float = 1.0
+    zipf_shift: float = 0.0
 
 
 class SparseFactorialGenerator:
@@ -21,6 +25,7 @@ class SparseFactorialGenerator:
         x_1, ..., x_nx, y_1, ..., y_ny
 
     A normal example contains one random x feature and one random y feature.
+    Feature identities can be sampled uniformly or from a truncated Zipf law.
     Optionally, some examples contain only one constituent feature.
 
     Returns:
@@ -45,6 +50,12 @@ class SparseFactorialGenerator:
             raise ValueError("singleton_probability must lie in [0, 1].")
         if cfg.noise_std < 0:
             raise ValueError("noise_std must be nonnegative.")
+        if cfg.index_distribution not in {"uniform", "zipf"}:
+            raise ValueError("index_distribution must be 'uniform' or 'zipf'.")
+        if cfg.zipf_exponent < 0:
+            raise ValueError("zipf_exponent must be nonnegative.")
+        if cfg.zipf_shift < 0:
+            raise ValueError("zipf_shift must be nonnegative.")
 
         self.cfg = cfg
         self.device = torch.device(device)
@@ -84,6 +95,50 @@ class SparseFactorialGenerator:
             else dictionary.clone()
         )
 
+        self.x_probabilities = self._index_probabilities(cfg.n_x)
+        self.y_probabilities = self._index_probabilities(cfg.n_y)
+
+    def _index_probabilities(self, n_features: int) -> torch.Tensor:
+        """Return the configured categorical probabilities in feature order."""
+        if self.cfg.index_distribution == "uniform":
+            return torch.full(
+                (n_features,),
+                1.0 / n_features,
+                dtype=torch.float32,
+                device=self.device,
+            )
+
+        ranks = torch.arange(
+            1,
+            n_features + 1,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        weights = (ranks + self.cfg.zipf_shift).pow(
+            -self.cfg.zipf_exponent
+        )
+        return weights / weights.sum()
+
+    def _sample_indices(
+        self,
+        n_features: int,
+        probabilities: torch.Tensor,
+        batch_size: int,
+    ) -> torch.Tensor:
+        if self.cfg.index_distribution == "uniform":
+            return torch.randint(
+                n_features,
+                size=(batch_size,),
+                generator=self.rng,
+                device=self.device,
+            )
+        return torch.multinomial(
+            probabilities,
+            batch_size,
+            replacement=True,
+            generator=self.rng,
+        )
+
     def sample(
         self,
         batch_size: int,
@@ -99,18 +154,16 @@ class SparseFactorialGenerator:
             device=self.device,
         )
 
-        x_indices = torch.randint(
+        x_indices = self._sample_indices(
             cfg.n_x,
-            size=(batch_size,),
-            generator=self.rng,
-            device=self.device,
+            self.x_probabilities,
+            batch_size,
         )
 
-        y_indices = torch.randint(
+        y_indices = self._sample_indices(
             cfg.n_y,
-            size=(batch_size,),
-            generator=self.rng,
-            device=self.device,
+            self.y_probabilities,
+            batch_size,
         ) + cfg.n_x
 
         # Independent positive amplitudes.

@@ -100,6 +100,15 @@ factorial sparsity sweep. Results are written beneath
 `08_relu_vs_batchtopk_recovery_comparison.ipynb` compares the Standard ReLU and
 BatchTopK recovery results across `N`.
 
+## Experiment 9: Zipfian primitive frequencies
+
+`09_zipfian_feature_frequencies.ipynb` is a standalone Standard SAELens SAE
+study containing Experiments 9A–9C. It validates the truncated-Zipf sampler,
+sweeps the Zipf exponent at fixed `N`, and evaluates Zipfian primitive recovery
+across `N` using Hungarian recovery at cosine 0.90 and MMCS. Quick and full runs
+use separate checkpoint and result namespaces beneath
+`artifacts/09_zipfian_feature_frequencies/`.
+
 ## Correlated feature amplitudes
 
 Each sample has exactly two non-zero features: one of `(x1, x2)` and one of
