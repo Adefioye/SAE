@@ -1,5 +1,5 @@
 {
-  "experiment": "6A",
+  "experiment": "5A",
   "run_label": "full_125m",
   "selection_rule": "maximize equal-weight mean of hungarian_90 and mmcs; tie-break by hungarian_90, mmcs, then baseline proximity",
   "selected_l1_coefficient": 0.1,

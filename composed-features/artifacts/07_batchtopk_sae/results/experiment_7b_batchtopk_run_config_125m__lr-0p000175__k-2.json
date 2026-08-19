@@ -1,5 +1,5 @@
 {
-  "experiment": "8B",
+  "experiment": "7B",
   "architecture": "batchtopk",
   "k": 2.0,
   "selected_learning_rate": 0.000175,

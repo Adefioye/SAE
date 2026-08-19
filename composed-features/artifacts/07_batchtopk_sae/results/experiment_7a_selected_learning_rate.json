@@ -1,5 +1,5 @@
 {
-  "experiment": "8A",
+  "experiment": "7A",
   "architecture": "batchtopk",
   "k": 2.0,
   "tuning_n": 256,

@@ -1,5 +1,5 @@
 {
-  "experiment": "7A",
+  "experiment": "6A",
   "architecture": "topk",
   "k": 2,
   "tuning_n": 256,
