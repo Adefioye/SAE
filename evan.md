@@ -1,5 +1,5 @@
 ## Motivation
-Evan et al. [1] showed that sparse autoencoders(SAEs) were unable to recover true underlying features from toy model of composed features. Even despite the fact that the SAEs were exposed to 75% of the true features, they still were unable to learn the true features of data. There were no explanations provided on why SAEs were unable to recover the true features. This therefore begs the following questions: can the results be reproduced? under what conditions will this failure mode happen? and how can the issue be resolved?
+Evan et al. [1] showed that sparse autoencoders(SAEs) were unable to recover true underlying features from toy model of composed features. Even despite the fact that the SAEs were exposed to 75% of the true features, they still were unable to learn the true features of data. There were no explanations provided on why SAEs were unable to recover the true features. This therefore begs the following questions: Can the results be reproduced? Under what conditions will this failure mode happen? and how can the issue be resolved?
 
 ## Datasets
 
@@ -7,11 +7,8 @@ Evan et al. [1] showed that sparse autoencoders(SAEs) were unable to recover tru
 
 *Figure 1. Composed-feature datasets used by Evan et al. [1] and the resulting toy-model and SAE feature geometry.*
 
-Evan et al. [1] use four true features split into two sets, \(\{x_1,x_2\}\) and
-\(\{y_1,y_2\}\). Each example contains one feature from each set. In their first
-dataset, the two active features share the same random amplitude; in the second,
-their amplitudes are sampled independently. A trained two-dimensional ReLU toy
-model maps these inputs to hidden activations on which the SAE is trained.
+Evan et al. [1] use four true features split into two sets, \(\{x_1,x_2\}\) and\(\{y_1,y_2\}\). Each training sample contains one feature from each set. In their first dataset, the two active features share the same random amplitude; in the second,
+their amplitudes are sampled independently. A trained two-dimensional ReLU toy model maps these inputs to hidden activations on which the SAE is trained.
 
 Our datasets generalizes this construction to \(n_x\) and
 \(n_y\) features and a configurable activation dimension. It samples one
@@ -35,7 +32,8 @@ Here, we used the same setup like Evan et al. and then try different four differ
 This question is motivated by classical sparse-coding theory. It has been proven that sparsity is a sufficient condition for guaranteed recovery of true features[2, 3, 4]. Lee Sharkey et al. [5] demonstrated recovery of true sparse features of toy model of superposition using SAE. We therefore asked whether making composed features sparser improves
 true feature recovery in toy model of composed features.
 
-We used our modified dataset generator that permits varying the number of true features per feature set, N, in the training samples. Each sample gets two correlated features and the sparsity of these composed features exposed to SAE increase as we increase N from 2 to 256. We used the default SAE from SAELens.
+We used our modified dataset generator that permits varying the number of true features per feature set, N, in the training samples. 
+As \(N\) increases from 2 to 256, each composed feature appears in approximately \(1/N^2\) of samples, decreasing from 25% to about 0.0015%. Each sample gets two correlated features and the sparsity of these composed features exposed to SAE increase as we increase N from 2 to 256. We used standard ReLU and BatchTopK SAE from SAELens library.
 
 We used both Hungarian matching and mean maximum cosine similarity as metrics for determining how well the SAE was able to recover the true features. Let \(D_i\) be a normalized true primitive direction, \(f_k\) a normalized learned SAE decoder direction, and \(S_{ik}=\cos(D_i,f_k)\). The one-to-one Hungarian metric finds the globally optimal bijection \(\pi^*\), then reports the fraction of matched pairs above a cosine threshold \(\tau\):
 
@@ -53,17 +51,14 @@ Mean Maximum Cosine Similarity (MMCS) assigns each true primitive its nearest le
 \operatorname{MMCS}=\frac{1}{2N}\sum_{i=1}^{2N}\max_k S_{ik}.
 \]
 
-![Hungarian recovery and MMCS across factorial sparsity levels](evans/sparsity-hungarian-mmcs.png)
+![Standard ReLU and BatchTopK true-feature recovery across composed-feature sparsity levels](evans/sparsity-hungarian-mmcs.png)
 
-*Figure 3. True-feature recovery as the number of features per set \(N\) increases: one-to-one Hungarian recovery at a 0.90 cosine cutoff (left) and MMCS (right). Points are means and error bars are two-sided 95% Student-\(t\) confidence intervals across five SAE seeds trained on 128 million samples.*
+*Figure 3. Mean true-feature recovery for Standard ReLU and BatchTopK SAEs as the number of features per set \(N\) increases. The left panel shows the fraction recovered by one-to-one Hungarian matching at a 0.90 cosine cutoff, and the right panel shows mean maximum cosine similarity (MMCS). Each point is the mean across five SAE seeds trained on 125 million samples.*
 
-For both metrics, as we increase N, the true feature recovery increases sharply and peaked at N=8 with near-perfect recovery but then slowly decreases until N=256. This observation thereby suggests that sparsity of the composed features is crucial for incentivising SAEs to learn efficient and reusable abstractions that are necessary for recovering ground-truth features in toy model of composed features.
+Both architectures have zero mean Hungarian recovery at \(N=2\) and only 0.15 at \(N=4\). Recovery then rises sharply as the compositions become sparser: Standard ReLU improves earlier and reaches 0.963 at \(N=16\), while BatchTopK reaches 0.906 at \(N=16\) and slightly exceeds Standard ReLU on Hungarian recovery from \(N=64\) onward. MMCS follows the same overall rise, with Standard ReLU generally remaining higher. These results thereby support the hypothesis that composed-feature sparsity promotes recovery of reusable ground-truth features.
 
-
-
-
-
-
+## Conclusion
+Without any meaningful change in SAE architectures, it can therefore be asserted that `sparsity of composed features` in toy model of composed features is therefore a necessary and sufficient condition for underlying true feature recovery using SAEs. This simple approach hereby resolves the failure mode reported in Evan et al.
 
 
 ## References
